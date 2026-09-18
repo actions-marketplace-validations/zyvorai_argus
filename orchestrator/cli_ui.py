@@ -1,5 +1,5 @@
 # Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Argus-Commercial
 """Colored command output and a branded progress bar.
 
 Plain text when stdout is not a terminal or NO_COLOR is set, so logs and

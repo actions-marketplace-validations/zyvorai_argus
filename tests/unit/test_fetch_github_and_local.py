@@ -1,5 +1,5 @@
 # Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Argus-Commercial
 """Unit tests for the `github` and `local` branches of fetch_requirements
 (the `document` branch is covered separately in test_fetch_document_source.py)."""
 

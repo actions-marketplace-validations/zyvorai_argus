@@ -1,5 +1,5 @@
 # Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Argus-Commercial
 """Per-key sliding-window rate limiter for `/api/dashboard/*` and `/api/v2/*`.
 
 Same shape as the login lockout in `orchestrator/dashboard/auth.py`, but for

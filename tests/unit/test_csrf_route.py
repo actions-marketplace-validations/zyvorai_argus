@@ -1,5 +1,5 @@
 # Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Argus-Commercial
 """End-to-end CSRF check through the real FastAPI app: log in (which issues
 both the session and CSRF cookies), then confirm a mutating dashboard
 request is rejected without X-CSRF-Token and accepted with it. Uses

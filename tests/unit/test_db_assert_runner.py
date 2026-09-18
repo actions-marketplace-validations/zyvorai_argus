@@ -1,5 +1,5 @@
 # Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Argus-Commercial
 """Unit tests for agents/db_assert/runner_script.py -- the deterministic
 (not LLM-generated) query-and-assert script that runs inside the db_assert
 sandbox. Pure-function tests import it directly; the end-to-end test

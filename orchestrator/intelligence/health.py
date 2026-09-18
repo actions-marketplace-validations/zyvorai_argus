@@ -1,5 +1,5 @@
 # Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Argus-Commercial
 """Suite-level health: wrap history.test_health() with classification and
 quarantine state. Does not replace the existing /api/dashboard/tests endpoint.
 """

@@ -1,5 +1,5 @@
 # Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Argus-Commercial
 """Regression-check for the parallel post-execution analysis fan-out.
 
 regression/api_validate/log_analyze/v8_coverage run concurrently off of

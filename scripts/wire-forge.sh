@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Argus-Commercial
 # Wire the QA agent to Forge — stand up Forge locally (API gateway + web UI) and
 # run the agent's suite against it. Forge is a FastAPI gateway + Vite web UI, so
 # it runs without the full Rust/K8s stack (K8s-backed endpoints degrade to 500

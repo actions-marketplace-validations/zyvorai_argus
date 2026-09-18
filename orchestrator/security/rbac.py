@@ -1,5 +1,5 @@
 # Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Argus-Commercial
 """Small role/scope layer for Mission Control v2 APIs.
 
 Service tokens are stored as SHA-256 hashes in a JSON file, never as plaintext.

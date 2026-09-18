@@ -1,5 +1,5 @@
 # Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Argus-Commercial
 """Unit tests for orchestrator.security.secrets: the secret-reference
 guard/resolver used for durable schedules, queued jobs, and the
 host_pentest/cloud_pentest credential path. Previously untested (67%,

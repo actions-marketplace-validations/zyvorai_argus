@@ -1,5 +1,5 @@
 # Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Argus-Commercial
 """MCP server exposing Mission Control's job API to MCP clients (e.g. Hermes Agent).
 
 Talks only to the existing `/api/v2` HTTP API over a Bearer service token — it

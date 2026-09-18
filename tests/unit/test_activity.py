@@ -1,5 +1,5 @@
 # Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Argus-Commercial
 """Unit tests for orchestrator/dashboard/activity.py's in-memory activity
 feeds. Previously only record_job was exercised incidentally elsewhere --
 record_webhook, recent, and last_webhook had no direct coverage."""

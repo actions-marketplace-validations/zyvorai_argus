@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Argus-Commercial
 # Build the Zyvor Argus "15-minute KT" tutorial from Playwright recordings
 # (seg01..seg09) + title/caption cards (render-cards.mjs).
 #

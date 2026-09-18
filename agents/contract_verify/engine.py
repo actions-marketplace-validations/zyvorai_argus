@@ -1,5 +1,5 @@
 # Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Argus-Commercial
 """Consumer-driven contract verification -- the honest, HAR-derived slice,
 not Pact. No broker, no publish/subscribe, no contract versioning, no
 cross-team consumer/provider matrix, no "can-i-deploy" gating. "Derive

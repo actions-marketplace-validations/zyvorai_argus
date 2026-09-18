@@ -1,43 +1,36 @@
-# Zyvor Argus
+<!-- Copyright (c) 2026 ZyvorAI Labs Private Limited. -->
+<!-- SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Argus-Commercial -->
+# Argus
 
 [![Release](https://img.shields.io/github/v/release/zyvorai/argus?label=release&color=2997ff)](https://github.com/zyvorai/argus/releases/latest)
 [![CI](https://github.com/zyvorai/argus/actions/workflows/ci.yml/badge.svg)](https://github.com/zyvorai/argus/actions/workflows/ci.yml)
 [![Security](https://github.com/zyvorai/argus/actions/workflows/security.yml/badge.svg)](https://github.com/zyvorai/argus/actions/workflows/security.yml)
-[![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-3776ab?logo=python&logoColor=white)](pyproject.toml)
 [![Node 20+](https://img.shields.io/badge/node-20%2B-339933?logo=node.js&logoColor=white)](package.json)
 [![TypeScript](https://img.shields.io/badge/typescript-Playwright-3178c6?logo=typescript&logoColor=white)](playwright/)
 
-**Autonomous QA for the real world.** Argus reads your requirements, scores them for quality, generates Playwright tests, runs them on every deploy, and shows you exactly what broke — in a live ops console that feels like it belongs on a Mac.
+![Argus — Autonomous QA for the real world.](docs/social/argus-share-card.png)
 
-[Why Argus](#why-argus) · [Quick start](#quick-start) · [Mission Control](#mission-control) · [Pipeline](#pipeline-cli) · [Which product?](#which-product) · [Docs](docs/tutorials/README.md) · [zyvor.dev](https://zyvor.dev)
-
-<p align="center">
-  <img src="docs/assets/zyvor-dev-mission-control-demo.gif" alt="Mission Control — dark theme, side rail, live terminal job panel" width="720">
-</p>
-
-<p align="center">
-  <em>Grouped side rail · dark theme · Ask Zyra · macOS Terminal live job · Search / ⌘K · 25+ actions</em>
-</p>
-
----
-
-## Why Argus
-
-| Without Argus | With Argus |
-|---------------|------------|
-| Specs drift from tests | Requirements are **versioned, scored, and traced** to every generated test — plus **impact** by shared data models & flows |
-| “Run smoke” is a tribal ritual | **One command** or one dashboard click — same LangGraph pipeline every time |
-| Flaky selectors waste afternoons | **Self-healing autofix** suggests and applies repairs, then re-runs |
-| API/OpenAPI drift is tribal knowledge | **Contract test, OpenAPI breaking-change diff, and HAR consumer verify** from Mission Control |
-| Security checks live in spreadsheets | **Authorized** misconfig/CVE/SCA/DAST/LLM-red-team/chaos jobs with audit trail and sandboxed PoC |
-| Five tools for E2E, API, vitals, probes | **Mission Control** — Console / Testing / Security / Operations rail, every action one click away |
+**Autonomous QA for the real world.** Argus reads your requirements, scores them, generates Playwright tests, runs them on every deploy, and shows what broke — in Mission Control, a live ops console.
 
 No LLM key required for smoke tests, rule-based parsing, and most dashboard actions. Add a provider when you want richer generation and analysis.
 
----
+![Mission Control — dark theme, side rail, live terminal job panel](docs/assets/zyvor-dev-mission-control-demo.gif)
 
-## Quick start
+*Grouped side rail · dark theme · Ask Zyra · macOS Terminal live job · Search / ⌘K · 25+ actions*
+
+## Contents
+
+- [Quickstart](#-quickstart)
+- [Mission Control](#-mission-control)
+- [Architecture at a glance](#-architecture-at-a-glance)
+- [Capabilities](#-capabilities)
+- [Why Argus](#-why-argus)
+- [Important boundaries](#-important-boundaries)
+- [License](#-license)
+
+## 🚀 Quickstart
 
 Requires Python 3.10+, Node 20+, and Docker (only for the container path). `make install` handles the rest, including Playwright's Chromium download.
 
@@ -63,120 +56,99 @@ docker pull ghcr.io/zyvorai/zyvor-argus:v0.9.2
 docker run --rm -p 8080:8080 --env-file .env ghcr.io/zyvorai/zyvor-argus:v0.9.2 serve --port 8080 --host 0.0.0.0
 ```
 
----
+| Track | Where |
+| --- | --- |
+| **Self-host from source** (AGPL, free for home) | This repo |
+| **Commercial license (ACL)** — custom pricing | [sales@zyvor.dev](mailto:sales@zyvor.dev) · [COMMERCIAL_LICENSE.md](COMMERCIAL_LICENSE.md) |
+| **Docs** | [Tutorials](docs/tutorials/README.md) · [zyvor.dev/docs](https://zyvor.dev/docs) |
 
-## Mission Control
+More: [user manual](docs/user/README.md) · [feature guide](docs/zyvor-argus-user-feature-guide.md) · [configuration](docs/configuration.md) · [remote deploy](docs/remote-deploy.md) · [enterprise overlay](docs/enterprise-v2.md).
 
-`argus serve` exposes **Mission Control** at `/dashboard` — the operator console for everything Argus can do.
+## 🖥 Mission Control
 
-**Shell**
+`argus serve` exposes **Mission Control** at `/dashboard`.
 
-- **Grouped side rail** — collapse to icons; groups and labels match the UI:
-  - **Console** — Overview · **Ask Zyra**
-  - **Testing** — Pipeline · Visual · Quality · Journeys · API · Probes · Requirements
-  - **Security** — Security testing
-  - **Operations** — Runs & schedules
-- **Header** — Knowledge lamp · dark/light theme toggle · **Search** (also **⌘K** / Ctrl-K command palette)
-- **Overview** — hero status + stats (pods/replicas when on a cluster, last QA run, pass rate, next smoke, knowledge) · live **macOS Terminal** job panel (Copy / Save / Stop, per-test chips, colored logs)
-- **Hash routes** — `#pipeline`, `#ask`, `#requirements`, `#operations`, …
+- **Grouped side rail** — Console (Overview, Ask Zyra) · Testing (Pipeline, Visual, Quality, Journeys, API, Probes, Requirements) · Security · Operations (Runs & schedules)
+- **Header** — knowledge lamp, dark/light theme, Search (also **⌘K**)
+- **Overview** — hero status, pass rate, next smoke, and a live macOS Terminal job panel (Copy / Save / Stop)
+- **Hash routes** — `#pipeline`, `#ask`, `#requirements`, `#operations`
 
-**Panels → actions (as labeled in the UI)**
+Full action list: [dashboard tutorial](docs/tutorials/10-mission-control-dashboard.md).
 
-| Rail panel | What you run |
-|------------|--------------|
-| **Pipeline** | ▶ Run tests (smoke / full) · ⚙ Generate · 🔎 Discover coverage · ✨ Create from English |
-| **Visual** | 👁 Visual regression · 🔀 Compare two URLs · 📸 Screenshot · 🗺 Route sweep |
-| **Quality** | 🔬 Site audit · 🎲 Flaky check · 📊 Web Vitals · 🌐 Crawl & test all pages |
-| **Journeys** | 🎬 Flow test (one video) · 📼 HAR record/replay · 📥 Import codegen · 🤖 AI test |
-| **API** | 🔌 OpenAPI contract · 🆚 **Contract diff** · 🤝 **Contract verify** (HAR) · 📡 Live data (WS/SSE) · 🔐 Auth & session |
-| **Probes** | 📡 Uptime ping · ⏱ Load test · 🔒 TLS · 🧰 Ten one-shot checks (redirects, headers, cookies, robots, exposed paths, API, sitemap, DNS, CORS, compression) |
-| **Requirements** | Versioned list + quality scores + linked tests · **Impact** (shared models/flows, co-occurrence edges, typed Order → Payment deps + canvas) |
-| **Security testing** | 🔏 Engagements · 🕵️ Misconfig · 🧬 CVE · 📦 SCA · 🎭 LLM red-team · 🔭 **Port scan** · 🔐 **TLS cipher** · 🎯 **DAST** · 💉 Injection · 🛡 CSRF · 🌐 SSRF · 🔑 Auth attack · 🔢 IDOR · 💣 Exploit PoC · ⛓ Attack chain · 🖥 Host / ☁️ Cloud pentest · 🗄 DB assert · 💥 Chaos inject · 🌐 Chaos webhook |
-| **Runs & schedules** | Recurring schedules · 🐞 Findings · QA run history + videos · Test health |
-| **Ask Zyra** | Citation-first Q&A over product docs (optional knowledge extra) |
+## 🗺 Architecture at a glance
 
-→ [Dashboard tutorial](docs/tutorials/10-mission-control-dashboard.md) · [User manual](docs/user/README.md)
-
----
-
-## Pipeline (CLI)
-
-```
-GitHub / local / PDF / email / transcript / jira / diarize  →  fetch  →  parse  →  evaluate_quality  →  generate  →  execute
-                                      ↓ fail → analyze → autofix → re-run
-                                      ↓ pass → report → Slack / Teams / email / GitHub PR comment
+```mermaid
+flowchart LR
+  subgraph Sources["Specs"]
+    GH["GitHub"]
+    PDF["PDF"]
+    Email["Email"]
+    Jira["Jira"]
+    Transcript["Transcript"]
+  end
+  Sources --> Pipeline["LangGraph pipeline"]
+  Pipeline --> Playwright["Playwright"]
+  Playwright --> Console["Mission Control"]
+  Pipeline -->|"fail"| Autofix["autofix"]
+  Autofix --> Playwright
 ```
 
 ```bash
 argus test run --source github --spec docs/specs/feature.md
 argus test run --source document --spec requirements/checkout.pdf
-argus test run --source email --spec inbox/req.eml          # or IMAP_* env with no --spec
-argus test run --source jira --spec PROJ-123                # or JSON export / OAuth token
-argus test run --source diarize --spec meetings/standup.vtt
 argus flow run https://zyvor.dev --steps docs/assets/zyvor-dev-demo.steps --video
-curl localhost:8080/api/v2/requirements              # versioned requirements + quality scores
-curl localhost:8080/api/v2/requirements/impact-graph  # models, flows, co-occurrence + typed deps
-argus intel health                                   # flake taxonomy + quarantine overlay
-argus intel select --base HEAD~1 --head HEAD         # change-based test selection
-curl localhost:8080/api/v2/intel/health
-curl -X POST localhost:8080/api/v2/intel/select \
-  -H 'Content-Type: application/json' -d '{"base":"HEAD~1","head":"HEAD"}'
 ```
 
-Full command reference: [`docs/test-authoring.md`](docs/test-authoring.md)
+Command reference: [docs/test-authoring.md](docs/test-authoring.md).
 
----
+## 🧰 Capabilities
 
-## Which product?
+- **Requirements** — versioned, scored, and traced to every generated test, plus impact by shared data models and flows
+- **One pipeline** — the same LangGraph path from the CLI or one dashboard click
+- **Self-healing autofix** — suggests and applies repairs, then re-runs
+- **Contracts** — OpenAPI contract test, breaking-change diff, and HAR consumer verify
+- **Authorized security** — misconfig, CVE, SCA, DAST, LLM red-team, and chaos jobs with an audit trail and sandboxed PoC
+- **Mission Control** — Console, Testing, Security, and Operations in one rail
 
-| You need… | Use |
-|-----------|-----|
-| **QA agent + Mission Control** (free, Apache-2.0) | **This repo** |
-| Hardening inside one `argus serve` (RBAC, durable jobs, SSRF policy) | [Enterprise v2 overlay](docs/enterprise-v2.md) |
-| Multi-target **Watchfloor** (SSO, billing, unified findings) | Argus Enterprise — [trial release](https://github.com/zyvorai/argus/releases/tag/v1.1.1-ent-trial) |
+Ask Zyra (optional knowledge extra): [docs/tutorials/14-ask-zyra-knowledge.md](docs/tutorials/14-ask-zyra-knowledge.md). What DAST covers, and what it deliberately defers: [docs/security-network-attack-gaps.md](docs/security-network-attack-gaps.md).
 
----
+## ⚖ Why Argus
 
-## Documentation
+| | Without Argus | With Argus |
+|---|---|---|
+| Specs and tests | Drift apart | Requirements are versioned, scored, and traced |
+| Smoke runs | A tribal ritual | One command, or one dashboard click |
+| Flaky selectors | Waste the afternoon | Autofix suggests a repair and re-runs |
+| API drift | Tribal knowledge | Contract test, OpenAPI diff, HAR verify |
+| Security checks | Spreadsheets | Authorized jobs with an audit trail |
+| Tooling | Five products | One Mission Control |
 
-| Start here | |
-|------------|---|
-| [Tutorials (1→18)](docs/tutorials/README.md) | Install → dashboard → flows → security |
-| [User manual](docs/user/README.md) | Page-by-page Mission Control + PDFs |
-| [Feature guide](docs/zyvor-argus-user-feature-guide.md) | Complete capability reference |
-| [Network-attack / DAST gaps](docs/security-network-attack-gaps.md) | What DAST covers vs deliberately deferred |
-| [Configuration](docs/configuration.md) | Every env var |
-| [Remote deploy](docs/remote-deploy.md) | VM, container, or k3s |
-| [Ask Zyra (RAG)](docs/tutorials/14-ask-zyra-knowledge.md) | Optional Qdrant knowledge Q&A |
-| [Release notes](RELEASE_NOTES.md) | What’s new in the latest tag |
+## 🔍 Important boundaries
 
-Official site: [zyvor.dev/docs](https://zyvor.dev/docs)
+What's free under AGPL vs. what needs a commercial license
+([full guide](docs/LICENSING.md)):
 
----
+| Use case | Allowed under AGPL? |
+| --- | --- |
+| Self-host for home or your own operations | Yes, free |
+| Modify for internal use | Yes, free |
+| Build and publish your own AGPL extensions | Yes, free |
+| Deploy modified Argus as public SaaS without releasing changes | No — needs ACL |
+| Embed Argus in a closed-source product | No — needs ACL |
+| White-label proprietary customizations without AGPL | No — needs ACL |
 
-## Project layout
+Commercial pricing is custom. Contact [sales@zyvor.dev](mailto:sales@zyvor.dev).
 
-```
-orchestrator/     LangGraph pipeline, Mission Control API, persistence, tracing
-agents/           Parser, generator, autofix, probes, DAST, SCA, contracts, chaos, DB assert, reporter
-templates/        Mission Control + login (Jinja2)
-playwright/       Test runner, crawl, visual diff
-knowledge/        Ask Zyra RAG (optional [knowledge] extra)
-kubernetes/       Deployment, CronJob, RBAC, sandbox Jobs
-scripts/          deploy-remote.sh, user-docs, e2e smoke
-```
+## 📈 Star History
 
----
+[![Star History Chart](https://api.star-history.com/svg?repos=zyvorai/argus&type=Date)](https://star-history.com/#zyvorai/argus&Date)
 
-## License
+## 📄 License
 
-### Open source (Apache-2.0)
+Dual-licensed:
 
-This repository is licensed under the [Apache License, Version 2.0](LICENSE).
-You may use, modify, and run it for personal, lab, and commercial production
-use at no charge, subject to Apache-2.0 (preserve notices / NOTICE where required).
+- **[AGPL-3.0](LICENSE)** — open source; free for home users and self-host under AGPL terms
+- **[Argus Commercial License (ACL)](COMMERCIAL_LICENSE.md)** — proprietary integrations, freedom from AGPL obligations, support. **Custom pricing** — [sales@zyvor.dev](mailto:sales@zyvor.dev)
 
-### Enterprise
-
-Production support, SLAs, and Zyvor Enterprise products are licensed separately.
-Contact [sales@zyvor.dev](mailto:sales@zyvor.dev) or see [zyvor.dev](https://zyvor.dev).
+See [docs/LICENSING.md](docs/LICENSING.md). Contributions: [CLA.md](CLA.md) + [DCO.md](DCO.md) (`git commit -s`),
+governed by our [Code of Conduct](CODE_OF_CONDUCT.md).

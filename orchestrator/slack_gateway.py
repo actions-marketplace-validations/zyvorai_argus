@@ -1,5 +1,5 @@
 # Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Argus-Commercial
 """Slack slash-command gateway: trigger and check on Mission Control jobs from chat.
 
 Kept deliberately minimal: it replies synchronously, inside Slack's 3-second

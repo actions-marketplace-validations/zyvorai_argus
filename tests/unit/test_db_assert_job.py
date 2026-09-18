@@ -1,5 +1,5 @@
 # Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Argus-Commercial
 """Unit tests for orchestrator/dashboard/jobs.py's _job_db_assert -- in
 particular, that the resolved db_secret VALUE never leaks into audit logs,
 findings, or the returned result payload (mirrors

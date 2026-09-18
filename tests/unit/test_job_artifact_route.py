@@ -1,5 +1,5 @@
 # Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Argus-Commercial
 """HTTP-level tests for GET /api/v2/jobs/{job_id}/artifact -- authenticated
 artifact streaming, gated on the href being one this job's own result
 actually recorded (not an arbitrary client-supplied path)."""

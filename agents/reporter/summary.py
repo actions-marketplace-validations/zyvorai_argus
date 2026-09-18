@@ -1,5 +1,5 @@
 # Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Argus-Commercial
 """Write reports/summary.json — the stable, CI-facing result contract.
 
 External CI systems (GitHub Actions, GitLab, CircleCI, Jenkins, Azure

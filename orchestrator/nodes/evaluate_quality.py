@@ -1,5 +1,5 @@
 # Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Argus-Commercial
 """Score each parsed requirement for quality/gaps, persist it (with version
 history), and surface which previously-generated tests trace to a requirement
 that changed since the last run.

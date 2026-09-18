@@ -1,5 +1,5 @@
 # Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Argus-Commercial
 """The desktop app sets ZYVOR_DESKTOP_MODE=true when it spawns `argus
 serve` (desktop/src-tauri/src/server.rs) so the dashboard hides the
 Kubernetes pods/workloads panel, which is always "cluster unavailable" for

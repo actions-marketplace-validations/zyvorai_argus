@@ -1,5 +1,5 @@
 # Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Argus-Commercial
 """SQLite persistence for jobs, schedules, findings, audit and webhook replay protection.
 
 SQLite is the zero-dependency default. The repository interface is deliberately

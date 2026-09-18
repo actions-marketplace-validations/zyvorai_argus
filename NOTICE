@@ -1,5 +1,18 @@
-Argus
-Copyright 2026 Zyvor AI Labs · https://zyvor.dev
+SPDX-FileCopyrightText: Copyright (c) 2026 ZyvorAI Labs Private Limited.
+SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Argus-Commercial
 
-This product is licensed under the Apache License, Version 2.0.
-See the LICENSE file for the full license text.
+Argus
+Copyright (c) 2026 ZyvorAI Labs Private Limited.
+
+This product is dual-licensed:
+
+  - GNU Affero General Public License v3.0 only (AGPL-3.0-only)
+    See LICENSE and LICENSES/AGPL-3.0-only.txt
+
+  - Argus Commercial License (ACL) — SPDX: LicenseRef-Argus-Commercial
+    See COMMERCIAL_LICENSE.md and LICENSES/LicenseRef-Argus-Commercial.txt
+
+Pricing is custom. Contact: sales@zyvor.dev · https://zyvor.dev
+
+Third-party open-source components bundled or linked by Argus retain their
+own copyright notices and license terms.

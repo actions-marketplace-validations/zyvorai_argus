@@ -1,5 +1,5 @@
 # Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Argus-Commercial
 """OpenAPI breaking-change diff -- pure Python, no subprocess tool (unlike
 `zyvor-diff`'s Rust pixel-diffing, this isn't CPU-bound enough to warrant one).
 

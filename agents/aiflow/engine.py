@@ -1,5 +1,5 @@
 # Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Argus-Commercial
 """Agentic AI-flow — the decider half. Spawns ai-flow.mjs, and for each page
 observation asks the LLM (or an injected decider) for the next action, until the
 agent reports `done` or the browser hits its step cap.

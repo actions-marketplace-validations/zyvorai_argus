@@ -1,5 +1,5 @@
 # Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Argus-Commercial
 """End-to-end check that the rate-limit middleware actually applies to
 /api/dashboard/* and /api/v2/* through the real FastAPI app, and leaves
 unrelated paths (like /health) alone."""

@@ -1,5 +1,5 @@
 # Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Argus-Commercial
 """Thin async HTTP client for Mission Control's `/api/v2` job API.
 
 Deliberately has no knowledge of `orchestrator.*` internals — it only speaks

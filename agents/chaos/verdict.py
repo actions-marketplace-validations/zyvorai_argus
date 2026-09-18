@@ -1,5 +1,5 @@
 # Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Argus-Commercial
 """Deterministic resilience-assessment rubric for `chaos_inject`/
 `chaos_webhook` -- no LLM call, unlike exploit_poc's script-generation path.
 There's no ambiguity to resolve here: "did the target degrade gracefully

@@ -1,5 +1,5 @@
 # Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Argus-Commercial
 """Unit tests for orchestrator/enterprise.py's install_enterprise: the
 startup/shutdown lifecycle hooks that start/stop the durable job service
 weren't exercised by any existing test (other suites build the app
