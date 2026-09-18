@@ -23,7 +23,7 @@ def test_initial_state_defaults():
     state = cli._initial_state()
     assert state["source"] == "local"
     assert state["spec_paths"] == []
-    assert state["metadata"] == {"explicit_spec": False}
+    assert state["metadata"] == {"explicit_spec": False, "jira_issue_keys": []}
     assert state["expand_coverage"] is False
     assert state["pr_number"] is None
 
@@ -34,7 +34,7 @@ def test_initial_state_local_spec_resolved_to_absolute_path(tmp_path, monkeypatc
     monkeypatch.chdir(tmp_path)
     state = cli._initial_state(source="local", spec="spec.md")
     assert state["spec_paths"] == [str(spec.resolve())]
-    assert state["metadata"] == {"explicit_spec": True}
+    assert state["metadata"] == {"explicit_spec": True, "jira_issue_keys": []}
 
 
 def test_initial_state_github_spec_normalized():

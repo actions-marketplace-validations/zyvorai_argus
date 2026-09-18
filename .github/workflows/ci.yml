@@ -32,6 +32,18 @@ jobs:
       - name: Unit tests
         run: pytest tests/unit -q
 
+      - name: CLI help groups
+        run: |
+          argus --help | tee /tmp/argus-help.txt
+          grep -q 'Operate' /tmp/argus-help.txt
+          grep -q 'Testing' /tmp/argus-help.txt
+          grep -q 'Security' /tmp/argus-help.txt
+          grep -q 'Watch' /tmp/argus-help.txt
+          argus guard --help | tee /tmp/argus-guard-help.txt
+          grep -q 'Scan' /tmp/argus-guard-help.txt
+          grep -q 'Attack' /tmp/argus-guard-help.txt
+          grep -q 'Gate' /tmp/argus-guard-help.txt
+
       - name: Node syntax check (Playwright scripts)
         run: |
           for f in playwright/scripts/*.mjs; do

@@ -19,25 +19,73 @@ from typing import Optional
 import typer
 from dotenv import load_dotenv
 
+from orchestrator.cli_theme import ArgusTyperGroup, apply_theme
 from orchestrator.graph import get_compiled_graph
 from orchestrator.paths import repo_root as _shared_repo_root
 from orchestrator.state import PipelineState
 
 app = typer.Typer(
     name="argus",
-    help="Zyvor Argus — autonomous testing, security, and monitoring for the Zyvor platform",
     no_args_is_help=True,
+    rich_markup_mode="rich",
+    cls=ArgusTyperGroup,
+    epilog="Run [bold cyan]argus COMMAND --help[/] for details on a command.",
 )
 
-test_app = typer.Typer(name="test", help="Playwright test generation & execution", no_args_is_help=True)
-flow_app = typer.Typer(name="flow", help="Multi-step user journeys", no_args_is_help=True)
-vision_app = typer.Typer(name="vision", help="Visual regression & route screenshots", no_args_is_help=True)
-api_app = typer.Typer(name="api", help="API/AI/auth contract & workflow testing", no_args_is_help=True)
-watch_app = typer.Typer(name="watch", help="Recurring monitoring: vitals & site audits", no_args_is_help=True)
-guard_app = typer.Typer(name="guard", help="Security testing & pentesting", no_args_is_help=True)
-redteam_app = typer.Typer(name="redteam", help="LLM/application red-teaming", no_args_is_help=True)
-ask_app = typer.Typer(name="ask", help="Ask Zyra knowledge base ingestion & evaluation", no_args_is_help=True)
-intel_app = typer.Typer(name="intel", help="Test intelligence: health, quarantine, change-based select", no_args_is_help=True)
+test_app = typer.Typer(
+    name="test",
+    help="Playwright test generation & execution",
+    no_args_is_help=True,
+    rich_markup_mode="rich",
+)
+flow_app = typer.Typer(
+    name="flow",
+    help="Multi-step user journeys",
+    no_args_is_help=True,
+    rich_markup_mode="rich",
+)
+vision_app = typer.Typer(
+    name="vision",
+    help="Visual regression & route screenshots",
+    no_args_is_help=True,
+    rich_markup_mode="rich",
+)
+api_app = typer.Typer(
+    name="api",
+    help="API/AI/auth contract & workflow testing",
+    no_args_is_help=True,
+    rich_markup_mode="rich",
+)
+watch_app = typer.Typer(
+    name="watch",
+    help="Recurring monitoring: vitals & site audits",
+    no_args_is_help=True,
+    rich_markup_mode="rich",
+)
+guard_app = typer.Typer(
+    name="guard",
+    help="Security testing & pentesting",
+    no_args_is_help=True,
+    rich_markup_mode="rich",
+)
+redteam_app = typer.Typer(
+    name="redteam",
+    help="LLM/application red-teaming",
+    no_args_is_help=True,
+    rich_markup_mode="rich",
+)
+ask_app = typer.Typer(
+    name="ask",
+    help="Ask Zyra knowledge base ingestion & evaluation",
+    no_args_is_help=True,
+    rich_markup_mode="rich",
+)
+intel_app = typer.Typer(
+    name="intel",
+    help="Test intelligence: health, quarantine, change-based select",
+    no_args_is_help=True,
+    rich_markup_mode="rich",
+)
 
 app.add_typer(test_app, name="test")
 app.add_typer(flow_app, name="flow")
@@ -1442,6 +1490,18 @@ def serve(
     uvicorn.run(create_app(), host=host, port=port, ssl_certfile=ssl_certfile, ssl_keyfile=ssl_keyfile)
 
 
+@app.command("version")
+def version_cmd() -> None:
+    """Print the installed Argus version."""
+    from importlib.metadata import PackageNotFoundError, version
+
+    try:
+        installed = version("zyvor-argus")
+    except PackageNotFoundError:
+        installed = "unknown"
+    typer.echo(f"argus {installed}")
+
+
 def _ensure_tls_cert(cert: Optional[str], key: Optional[str], host: str) -> tuple[str, str]:
     """Return (cert_path, key_path); generate a self-signed pair if not provided."""
     import subprocess
@@ -1660,6 +1720,8 @@ legacy_app.command("pr-gate")(pr_gate)
 legacy_app.command("serve")(serve)
 legacy_app.command("knowledge-ingest")(knowledge_ingest)
 legacy_app.command("knowledge-evaluate")(knowledge_evaluate)
+
+apply_theme(app)
 
 
 if __name__ == "__main__":
