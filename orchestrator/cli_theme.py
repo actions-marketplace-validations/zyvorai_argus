@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+import os
+
 import typer
 from rich.console import Console
 from rich.text import Text
@@ -120,8 +122,17 @@ SUBCOMMAND_PANELS: dict[str, dict[str, str]] = {
 _LOGO_STYLES = ("#ddd6fe", "#c4b5fd", "#a78bfa", "#8b5cf6", "#7c3aed")
 
 
+_STYLES_INSTALLED = False
+
+
 def install_styles() -> None:
-    """Recolor Typer's Rich help. Safe to call more than once."""
+    """Recolor Typer's Rich help. Safe to call more than once.
+
+    Typer forces a color terminal when ``GITHUB_ACTIONS`` is set, which
+    defeats ``NO_COLOR``. Help rendering checks the variable itself so
+    pipes and CI stay plain.
+    """
+    global _STYLES_INSTALLED
     from typer import rich_utils
 
     rich_utils.STYLE_OPTION = "bold cyan"
@@ -133,11 +144,33 @@ def install_styles() -> None:
     rich_utils.STYLE_OPTIONS_PANEL_BORDER = "cyan"
     rich_utils.STYLE_COMMANDS_TABLE_FIRST_COLUMN = "bold cyan"
     rich_utils.STYLE_REQUIRED_SHORT = "bold #c4b5fd"
+    if _STYLES_INSTALLED:
+        return
+    original = rich_utils._get_rich_console
+
+    def _get_rich_console(stderr: bool = False):
+        if not os.environ.get("NO_COLOR"):
+            return original(stderr=stderr)
+        saved = (rich_utils.COLOR_SYSTEM, rich_utils.FORCE_TERMINAL)
+        rich_utils.COLOR_SYSTEM = None
+        rich_utils.FORCE_TERMINAL = False
+        try:
+            return original(stderr=stderr)
+        finally:
+            rich_utils.COLOR_SYSTEM, rich_utils.FORCE_TERMINAL = saved
+
+    rich_utils._get_rich_console = _get_rich_console
+    _STYLES_INSTALLED = True
 
 
 def print_banner() -> None:
-    """Print the wordmark. Rich drops color when stdout is not a TTY or NO_COLOR is set."""
-    console = Console(highlight=False)
+    """Print the wordmark. Color is off when stdout is not a TTY or NO_COLOR is set."""
+    no_color = bool(os.environ.get("NO_COLOR"))
+    console = Console(
+        highlight=False,
+        no_color=True if no_color else None,
+        force_terminal=False if no_color else None,
+    )
     logo = Text(no_wrap=True, overflow="ignore")
     for index, line in enumerate(BANNER_ART.splitlines()):
         if index:
