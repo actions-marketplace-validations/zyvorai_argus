@@ -19,7 +19,13 @@ def test_echo_is_plain_without_a_tty(capsys, monkeypatch) -> None:
     assert "\x1b[" not in captured.err
 
 
-def test_style_for_results_grades_and_findings() -> None:
+def test_cards_cover_headlines_and_leave_detail_lines_alone() -> None:
+    assert ui.card_for("Results: 2 passed, 1 failed, 3 total") is not None
+    assert ui.card_for("Grade: A (96/100) — 0 failing, 1 warning checks") is not None
+    assert ui.card_for("argus 0.9.2") is not None
+    assert ui.card_for("Report: reports/qa.html") is not None
+    assert ui.card_for("Error: boom", err=True) is not None
+    assert ui.card_for("[gap] page /pricing — Pricing") is None
     assert ui.style_for("Results: 1 passed, 0 failed, 1 total") == "bold green"
     assert ui.style_for("Results: 1 passed, 2 failed, 3 total") == "bold yellow"
     assert ui.style_for("Result: 1/2 steps passed") == "bold yellow"
