@@ -47,7 +47,7 @@ Regenerate: `node scripts/user-docs/generate-page-index.mjs`
 | Page | Route | Purpose | Guide |
 |------|-------|---------|-------|
 | Site audit | `/dashboard/actions/audit` | Crawl pages for a11y (axe), broken links, SEO, console, perf, and security headers. | [Open](pages/quality/dashboard-actions-audit.md) |
-| Flaky check | `/dashboard/actions/flaky` | Re-run the suite N times and surface unstable tests. | [Open](pages/quality/dashboard-actions-flaky.md) |
+| Flaky check | `/dashboard/actions/flaky` | Re-run the suite N times and surface unstable tests. Quarantine findings via argus intel quarantine-add / POST /api/v2/intel/quarantine (reports/quarantine.json). | [Open](pages/quality/dashboard-actions-flaky.md) |
 | Web Vitals | `/dashboard/actions/vitals` | Measure Core Web Vitals (LCP / CLS / INP) with optional device and network throttle. | [Open](pages/quality/dashboard-actions-vitals.md) |
 | Crawl & test | `/dashboard/actions/crawl` | Crawl an arbitrary site and validate every discovered page. | [Open](pages/quality/dashboard-actions-crawl.md) |
 
@@ -111,7 +111,7 @@ Regenerate: `node scripts/user-docs/generate-page-index.mjs`
 | Findings | `/dashboard/findings` | Collected issues from API, auth, live-data, vitals, audit, and security jobs with export/clear. | [Open](pages/operations/dashboard-findings.md) |
 | QA Runs | `/dashboard/runs` | History table of QA runs with pass/fail chips and sparkline trends. | [Open](pages/operations/dashboard-runs.md) |
 | Videos | `/dashboard/videos` | Browse and download recorded journey videos / traces from recent jobs. | [Open](pages/operations/dashboard-videos.md) |
-| Test health | `/dashboard/test-health` | Worst-offender ranking by fail count, fail %, and flaky badge from the per-test index. | [Open](pages/operations/dashboard-test-health.md) |
+| Test health | `/dashboard/test-health` | Worst-offender ranking by fail count, fail %, and flaky badge from the per-test index. Classified overlay + quarantine: GET /api/v2/intel/health / argus intel health. | [Open](pages/operations/dashboard-test-health.md) |
 
 ## Related
 

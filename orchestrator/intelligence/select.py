@@ -11,7 +11,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from orchestrator.intelligence.quarantine import is_quarantined, listing, test_key
+from orchestrator.intelligence.quarantine import listing, test_key
 
 _TEST_SUFFIXES = (".spec.ts", ".spec.js", ".test.ts", ".test.js", ".spec.py", ".test.py")
 _PRODUCT_HINTS = (
