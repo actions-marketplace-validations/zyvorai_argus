@@ -1,5 +1,5 @@
 # Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-# SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Argus-Commercial
+# SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
 """Unit tests for the pure/state-management surface of
 orchestrator/dashboard/jobs.py: progress logging, live-case tally parsing,
 job dispatch/busy-guard, and the small formatting helpers. The ~30

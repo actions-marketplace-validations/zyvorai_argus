@@ -1,5 +1,5 @@
 # Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-# SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Argus-Commercial
+# SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
 """HTTP-level tests for POST /api/v2/jobs/{job_id}/route-sweep/approve --
 promoting one screenshot from a route_sweep job's own result to the saved
 baseline it's diffed against."""

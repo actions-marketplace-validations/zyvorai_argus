@@ -1,5 +1,5 @@
 # Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-# SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Argus-Commercial
+# SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
 """Builds the `chaos_inject` fault-injection shell script -- mechanical
 string templating, deliberately NOT LLM-generated (a fixed `tc netem`/
 `iptables` invocation needs no model call, unlike exploit_poc's PoC

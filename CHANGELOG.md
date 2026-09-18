@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Changed
+- Replaced the AGPL-3.0 + Argus Commercial License dual license with the Zyvor Production License v1.0. Non-production use is free. Production use requires a separate paid commercial license. Published SKU prices are withdrawn; commercial terms are issued separately (https://zyvor.dev).
+
 ### Added
 - **Test intelligence** — flake taxonomy + file-backed quarantine (`reports/quarantine.json`, TTL + owner), change-based test selection (`git diff` + requirement-test links + quarantine exclusion), and a failure-studio payload that stitches per-case video/trace/error/category. New `GET/POST /api/v2/intel/*` routes, `argus intel` CLI, and `select_tests` job kind (static, no engagement). No store-schema change, so SQLite and Postgres stay on the same public surface. New tests: `test_intel_*.py`.
 - **Typed model dependencies + impact canvas** — `model_dependencies` on `requirement_versions` (schema v6) capture explicit edges such as Order → Payment; `GET /api/v2/requirements/impact-graph` returns them alongside co-occurrence `model_edges`; Mission Control renders a typed-dependency list and SVG canvas.

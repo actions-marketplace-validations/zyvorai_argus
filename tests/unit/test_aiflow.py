@@ -1,5 +1,5 @@
 # Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-# SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Argus-Commercial
+# SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
 """Tests for the autonomous AI tester (agents/aiflow/engine.py) + ai_flow validation."""
 
 from __future__ import annotations

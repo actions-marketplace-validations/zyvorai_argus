@@ -1,5 +1,5 @@
 # Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-# SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Argus-Commercial
+# SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
 """End-to-end check of POST /webhook/slack/command: signature verification,
 the dashboard-auth bypass, and the slash-command reply — through the real
 FastAPI app rather than the gateway function in isolation."""

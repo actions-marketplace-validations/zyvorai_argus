@@ -1,5 +1,5 @@
 # Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-# SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Argus-Commercial
+# SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
 """Loads runner_script.py's own source text, for handing to
 orchestrator.security.sandbox.run_python() -- the sandbox takes code as a
 string (mounted as a ConfigMap), not a file path, mirroring how

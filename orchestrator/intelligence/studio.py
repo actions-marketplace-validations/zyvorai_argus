@@ -1,5 +1,5 @@
 # Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-# SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Argus-Commercial
+# SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
 """Failure studio — one payload per job that stitches cases, artifacts,
 classification, and a quarantine recommendation. Does not fetch remote
 URLs; it only reads the job record and local report paths already on disk.

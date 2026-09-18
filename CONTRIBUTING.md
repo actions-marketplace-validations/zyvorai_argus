@@ -1,8 +1,8 @@
 <!-- Copyright (c) 2026 ZyvorAI Labs Private Limited. -->
-<!-- SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Argus-Commercial -->
+<!-- SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0 -->
 # Contributing
 
-Argus is dual-licensed (AGPL-3.0 + commercial ACL). See [`docs/LICENSING.md`](docs/LICENSING.md).
+Argus is licensed under the Zyvor Production License v1.0. Non-production use is free; production use needs a commercial license. See [`docs/LICENSING.md`](docs/LICENSING.md).
 Contributions need the [CLA](CLA.md) and a DCO `Signed-off-by` line (`git commit -s`; see [DCO.md](DCO.md)).
 All participation is governed by the [Code of Conduct](CODE_OF_CONDUCT.md).
 

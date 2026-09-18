@@ -1,5 +1,5 @@
 # Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-# SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Argus-Commercial
+# SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
 """Unit tests for orchestrator.security.rbac: token identification and scope
 enforcement. Previously untested (0% direct coverage, only incidentally
 exercised via routes that happen to call through it)."""

@@ -1,5 +1,5 @@
 # Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-# SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Argus-Commercial
+# SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
 """Latency/recovery measurement shared by `chaos_inject` and
 `chaos_webhook` -- plain HTTP timing against the target, no privileged
 operations, so unlike the fault-injection mechanism itself this is fully

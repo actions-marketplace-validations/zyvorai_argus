@@ -1,5 +1,5 @@
 # Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-# SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Argus-Commercial
+# SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
 """Unit tests for the pure/reusable helpers in orchestrator/cli.py.
 
 The ~25 @app.command() functions themselves are thin Typer wrappers that

@@ -1,5 +1,5 @@
 # Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-# SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Argus-Commercial
+# SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
 """Client-side allowlist of job kinds the MCP server will trigger.
 
 Defense in depth on top of the server-side `jobs:write` RBAC scope (see

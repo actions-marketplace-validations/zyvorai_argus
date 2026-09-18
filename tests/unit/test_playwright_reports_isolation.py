@@ -1,5 +1,5 @@
 # Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-# SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Argus-Commercial
+# SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
 """Regression guard for a real data-loss bug found live 2026-09-08.
 
 Playwright's HTML reporter unconditionally clears its entire `outputFolder`

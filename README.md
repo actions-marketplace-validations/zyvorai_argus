@@ -1,11 +1,11 @@
 <!-- Copyright (c) 2026 ZyvorAI Labs Private Limited. -->
-<!-- SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Argus-Commercial -->
+<!-- SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0 -->
 # Argus
 
 [![Release](https://img.shields.io/github/v/release/zyvorai/argus?label=release&color=2997ff)](https://github.com/zyvorai/argus/releases/latest)
 [![CI](https://github.com/zyvorai/argus/actions/workflows/ci.yml/badge.svg)](https://github.com/zyvorai/argus/actions/workflows/ci.yml)
 [![Security](https://github.com/zyvorai/argus/actions/workflows/security.yml/badge.svg)](https://github.com/zyvorai/argus/actions/workflows/security.yml)
-[![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](LICENSE)
+[![License: Zyvor Production v1.0](https://img.shields.io/badge/License-Zyvor%20Production%20v1.0-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-3776ab?logo=python&logoColor=white)](pyproject.toml)
 [![Node 20+](https://img.shields.io/badge/node-20%2B-339933?logo=node.js&logoColor=white)](package.json)
 [![TypeScript](https://img.shields.io/badge/typescript-Playwright-3178c6?logo=typescript&logoColor=white)](playwright/)
@@ -58,11 +58,8 @@ docker run --rm -p 8080:8080 --env-file .env ghcr.io/zyvorai/zyvor-argus:v0.9.2 
 
 | Track | Where |
 | --- | --- |
-| **Community** (AGPL) | $0 — this repo |
-| **Team (ACL)** | $199/mo or $1,990/yr |
-| **Watchfloor** | $999/mo or $9,990/yr |
-| **Air-gap** | Custom from $18,000/yr |
-| **Order** | [sales@zyvor.dev](mailto:sales@zyvor.dev) · [COMMERCIAL_LICENSE.md](COMMERCIAL_LICENSE.md) |
+| **Non-production use** (free under the Zyvor Production License) | This repo |
+| **Production / commercial license** | [https://zyvor.dev](https://zyvor.dev) |
 | **Docs** | [Tutorials](docs/tutorials/README.md) · [zyvor.dev/docs](https://zyvor.dev/docs) |
 
 More: [user manual](docs/user/README.md) · [feature guide](docs/zyvor-argus-user-feature-guide.md) · [configuration](docs/configuration.md) · [remote deploy](docs/remote-deploy.md) · [enterprise overlay](docs/enterprise-v2.md).
@@ -128,19 +125,16 @@ Ask Zyra (optional knowledge extra): [docs/tutorials/14-ask-zyra-knowledge.md](d
 
 ## 🔍 Important boundaries
 
-What's free under AGPL vs. what needs a commercial license
+What's free under the Zyvor Production License vs. what needs a commercial license
 ([full guide](docs/LICENSING.md)):
 
-| Use case | Allowed under AGPL? |
+| Use case | Allowed without a paid license? |
 | --- | --- |
-| Self-host for home or your own operations | Yes, free |
-| Modify for internal use | Yes, free |
-| Build and publish your own AGPL extensions | Yes, free |
-| Deploy modified Argus as public SaaS without releasing changes | No — needs ACL |
-| Embed Argus in a closed-source product | No — needs ACL |
-| White-label proprietary customizations without AGPL | No — needs ACL |
-
-**Community $0** · **Team $199/mo** · **Watchfloor $999/mo** · air-gap custom from $18,000/yr. What each SKU includes: [COMMERCIAL_LICENSE.md](COMMERCIAL_LICENSE.md). Contact [sales@zyvor.dev](mailto:sales@zyvor.dev).
+| Development, testing, evaluation, research, education | Yes |
+| Non-production laboratory and proof-of-concept use | Yes |
+| Production environments and customer workloads | No — needs a commercial license |
+| SaaS, managed services, OEM, appliances | No — needs a commercial license |
+| Redistribution or resale | No — needs written permission and a commercial license |
 
 ## 📈 Star History
 
@@ -148,10 +142,12 @@ What's free under AGPL vs. what needs a commercial license
 
 ## 📄 License
 
-Dual-licensed:
+Licensed under the **[Zyvor Production License v1.0](LICENSE)**.
 
-- **[AGPL-3.0](LICENSE)** — open source; free for home users and self-host under AGPL terms
-- **[Argus Commercial License (ACL)](COMMERCIAL_LICENSE.md)** — Team $199/mo, Watchfloor $999/mo, air-gap custom from $18,000/yr. [sales@zyvor.dev](mailto:sales@zyvor.dev)
+- **Free** for development, testing, evaluation, research, education, and non-production labs
+- **Paid commercial license required** for production, customer workloads, SaaS, managed services, OEM, redistribution, and other revenue-generating use
+
+Commercial terms are issued separately: [https://zyvor.dev](https://zyvor.dev).
 
 See [docs/LICENSING.md](docs/LICENSING.md). Contributions: [CLA.md](CLA.md) + [DCO.md](DCO.md) (`git commit -s`),
 governed by our [Code of Conduct](CODE_OF_CONDUCT.md).

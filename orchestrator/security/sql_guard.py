@@ -1,5 +1,5 @@
 # Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-# SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Argus-Commercial
+# SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
 """SELECT-only enforcement for `db_assert` (see ROADMAP.md's "database
 testing" section). Mirrors `target_policy.py`'s validate-before-execute
 shape: a keyword denylist checked before persistence, not a claim of being

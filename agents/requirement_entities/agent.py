@@ -1,5 +1,5 @@
 # Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-# SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Argus-Commercial
+# SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
 """Data-model/flow extraction agent -- the grouping key behind impact
 analysis (see ROADMAP.md's "Business-flow/data/automation-level impact
 analysis" and RequirementEntities' docstring)."""

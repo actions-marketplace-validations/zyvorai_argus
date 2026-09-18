@@ -1,5 +1,5 @@
 # Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-# SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Argus-Commercial
+# SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
 """Deterministic failure taxonomy. No LLM — the categories are a rubric
 over status history + the error string, the same posture as
 agents/chaos/verdict.py.

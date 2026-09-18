@@ -1,5 +1,5 @@
 # Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-# SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Argus-Commercial
+# SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
 """Optional OpenTelemetry distributed tracing.
 
 Opt-in via ZYVOR_OTEL_ENABLED=true -- matching this codebase's existing

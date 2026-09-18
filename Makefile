@@ -1,5 +1,5 @@
 # Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-# SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Argus-Commercial
+# SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
 .PHONY: install test generate run serve docker lint regression create rust \
         k8s-check k8s-validate k8s-validate-cluster k8s-apply k8s-delete \
         desktop-dev desktop-build desktop-build-signed desktop-check

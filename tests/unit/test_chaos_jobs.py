@@ -1,5 +1,5 @@
 # Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-# SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Argus-Commercial
+# SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
 """Unit tests for orchestrator/dashboard/jobs.py's _job_chaos_inject and
 _job_chaos_webhook, with sandbox/control-test execution mocked (the deeper
 mechanics -- agents/chaos/probe.py, verdict.py, inject_script.py -- have

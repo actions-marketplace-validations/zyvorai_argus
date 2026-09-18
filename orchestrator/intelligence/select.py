@@ -1,5 +1,5 @@
 # Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-# SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Argus-Commercial
+# SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
 """Change-based test selection. Honest slice: git path heuristics +
 requirement_test_links + quarantine exclusion. Not a coverage profiler
 and not a full call-graph.

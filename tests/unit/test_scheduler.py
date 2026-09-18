@@ -1,5 +1,5 @@
 # Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-# SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Argus-Commercial
+# SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
 """Unit tests for orchestrator/dashboard/scheduler.py -- a thin,
 backward-compatible wrapper over the durable store/service. Previously
 had zero coverage (0%)."""

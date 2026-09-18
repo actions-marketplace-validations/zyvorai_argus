@@ -1,5 +1,5 @@
 # Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-# SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Argus-Commercial
+# SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
 """Deeper misconfig/recon checks bundled into one scan: tech + version
 fingerprinting, wordlist-driven path discovery, security-header *value*
 grading (not just presence), and basic DNS hygiene (SPF/DMARC/CAA).

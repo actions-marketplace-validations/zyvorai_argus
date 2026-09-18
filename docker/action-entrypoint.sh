@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-# SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Argus-Commercial
+# SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
 # Entrypoint for the `zyvorai/argus` GitHub Action (see action.yml).
 #
 # GitHub Actions always sets ACTION_* even when an input was left at its empty

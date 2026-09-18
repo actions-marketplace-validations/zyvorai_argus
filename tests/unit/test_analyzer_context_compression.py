@@ -1,5 +1,5 @@
 # Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-# SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Argus-Commercial
+# SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
 """_collect_artifact_context must bound what goes into the failure-analysis
 prompt — unbounded console logs / failed-case counts / stale artifacts have
 no reason to grow the prompt without limit."""

@@ -2,12 +2,12 @@
 
 Short map so Community and Enterprise users do not mix up three different things.
 
-| You want… | Use | Price | Start here |
-|-----------|-----|-------|------------|
-| QA agent + **Mission Control** for your own ops | **Community** (AGPL) | $0 | [Getting Started](getting-started.md) |
-| No AGPL disclosure, one instance, email support | **Team (ACL)** — includes the [Enterprise v2 overlay](../enterprise-v2.md) | $199/mo or $1,990/yr | [Commercial license](../../COMMERCIAL_LICENSE.md) |
-| Multi-target **Watchfloor**: SSO, unified findings, billing | **Argus Enterprise** | $999/mo or $9,990/yr · [30-day trial](https://github.com/zyvorai/argus/releases/tag/v1.1.1-ent-trial) | [Enterprise SSO / OIDC](enterprise-sso.md) |
-| Offline / air-gap, major-version lock | **Platform** | Custom from $18,000/yr | [sales@zyvor.dev](mailto:sales@zyvor.dev) |
+| You want… | Use | Start here |
+|-----------|-----|------------|
+| QA agent + **Mission Control** for non-production use | **Zyvor Production License** (free) | [Getting Started](getting-started.md) |
+| Production, customer workloads, or a supported deployment | **Commercial license** — includes the [Enterprise v2 overlay](../enterprise-v2.md) | [https://zyvor.dev](https://zyvor.dev) |
+| Multi-target **Watchfloor**: SSO, unified findings, billing | **Argus Enterprise** | [Enterprise SSO / OIDC](enterprise-sso.md) |
+| Offline / air-gap | **Commercial license** | [https://zyvor.dev](https://zyvor.dev) |
 
 ## Community path (most readers)
 
@@ -29,7 +29,7 @@ Short map so Community and Enterprise users do not mix up three different things
 
 “Enterprise v2” in the OSS docs is **not** Watchfloor. Watchfloor is the separate commercial control plane. You can run both: harden each OSS target with the overlay, *and* put Watchfloor in front.
 
-List prices (USD): [COMMERCIAL_LICENSE.md](../../COMMERCIAL_LICENSE.md). Sales: [sales@zyvor.dev](mailto:sales@zyvor.dev) · [zyvor.dev](https://zyvor.dev)
+Commercial terms are issued separately: [https://zyvor.dev](https://zyvor.dev).
 
 ## Operate from the console (UX)
 

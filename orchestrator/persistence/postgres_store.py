@@ -1,5 +1,5 @@
 # Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-# SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Argus-Commercial
+# SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
 """PostgreSQL persistence — a drop-in for MissionControlStore's exact public
 interface, for multi-replica deployments where SQLite's single-writer model
 doesn't work (see ROADMAP.md "Horizontal scale").
