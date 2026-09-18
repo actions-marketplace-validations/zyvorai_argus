@@ -58,8 +58,11 @@ docker run --rm -p 8080:8080 --env-file .env ghcr.io/zyvorai/zyvor-argus:v0.9.2 
 
 | Track | Where |
 | --- | --- |
-| **Self-host from source** (AGPL, free for home) | This repo |
-| **Commercial license (ACL)** — custom pricing | [sales@zyvor.dev](mailto:sales@zyvor.dev) · [COMMERCIAL_LICENSE.md](COMMERCIAL_LICENSE.md) |
+| **Community** (AGPL) | $0 — this repo |
+| **Team (ACL)** | $199/mo or $1,990/yr |
+| **Watchfloor** | $999/mo or $9,990/yr |
+| **Air-gap** | Custom from $18,000/yr |
+| **Order** | [sales@zyvor.dev](mailto:sales@zyvor.dev) · [COMMERCIAL_LICENSE.md](COMMERCIAL_LICENSE.md) |
 | **Docs** | [Tutorials](docs/tutorials/README.md) · [zyvor.dev/docs](https://zyvor.dev/docs) |
 
 More: [user manual](docs/user/README.md) · [feature guide](docs/zyvor-argus-user-feature-guide.md) · [configuration](docs/configuration.md) · [remote deploy](docs/remote-deploy.md) · [enterprise overlay](docs/enterprise-v2.md).
@@ -137,7 +140,7 @@ What's free under AGPL vs. what needs a commercial license
 | Embed Argus in a closed-source product | No — needs ACL |
 | White-label proprietary customizations without AGPL | No — needs ACL |
 
-Commercial pricing is custom. Contact [sales@zyvor.dev](mailto:sales@zyvor.dev).
+**Community $0** · **Team $199/mo** · **Watchfloor $999/mo** · air-gap custom from $18,000/yr. What each SKU includes: [COMMERCIAL_LICENSE.md](COMMERCIAL_LICENSE.md). Contact [sales@zyvor.dev](mailto:sales@zyvor.dev).
 
 ## 📈 Star History
 
@@ -148,7 +151,7 @@ Commercial pricing is custom. Contact [sales@zyvor.dev](mailto:sales@zyvor.dev).
 Dual-licensed:
 
 - **[AGPL-3.0](LICENSE)** — open source; free for home users and self-host under AGPL terms
-- **[Argus Commercial License (ACL)](COMMERCIAL_LICENSE.md)** — proprietary integrations, freedom from AGPL obligations, support. **Custom pricing** — [sales@zyvor.dev](mailto:sales@zyvor.dev)
+- **[Argus Commercial License (ACL)](COMMERCIAL_LICENSE.md)** — Team $199/mo, Watchfloor $999/mo, air-gap custom from $18,000/yr. [sales@zyvor.dev](mailto:sales@zyvor.dev)
 
 See [docs/LICENSING.md](docs/LICENSING.md). Contributions: [CLA.md](CLA.md) + [DCO.md](DCO.md) (`git commit -s`),
 governed by our [Code of Conduct](CODE_OF_CONDUCT.md).

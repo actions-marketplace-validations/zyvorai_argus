@@ -4,43 +4,39 @@
 
 Argus is dual-licensed:
 
-- **AGPL-3.0** — open source. Free for home users and self-hosted deployments that accept the AGPL (see [`LICENSE`](LICENSE)).
-- **Argus Commercial License (ACL)** — for organizations that need more flexibility than AGPL allows.
+- **AGPL-3.0** — open source. Free to self-host for your own operations (see [`LICENSE`](LICENSE)).
+- **Argus Commercial License (ACL)** — for public SaaS, embedding, or closed-source extensions that cannot accept AGPL disclosure.
 
-This document summarizes ACL options. Binding commercial terms are provided by Zyvor sales when you purchase. **Pricing is custom.**
-
-## Why ACL
-
-For organizations that require more flexibility, Zyvor offers an Argus Commercial License (ACL) that provides:
-
-- **Freedom from AGPL obligations** — Deploy and modify Argus without source code disclosure requirements
-- **Proprietary integrations** — Build closed-source extensions and integrations
-- **Commercial protections** — Warranties, indemnities, and legal assurances not provided under AGPL
-- **Derivative work ownership** — Retain full ownership of your modifications and customizations
-- **Flexible licensing options** — Choose from annual, monthly, or perpetual license models
-
-## Commercial License Options
-
-| License Type | Price | Support & Updates | Best For |
-| --- | --- | --- | --- |
-| Annual License | Custom | All upgrades & Business Support included | Organizations requiring continuous updates and support |
-| Monthly License | Custom | All upgrades & Business Support included | Pilot projects and short-term deployments |
-| Major Version License | Custom | No ongoing support | Stable deployments on a single major version |
-| Minor Version License | Custom | No ongoing support | Locked version deployments |
-
-## When You Need a Commercial License
-
-You should consider a commercial license if you:
-
-- Want to build proprietary extensions or integrations without open-sourcing them
-- Need to embed Argus in a commercial product without AGPL obligations
-- Require enterprise-grade support, SLAs, and legal protections
-- Plan to modify Argus without sharing your changes publicly
-
-## Get a Commercial License
-
-For custom pricing and commercial licensing options, contact:
+List prices below are what sales quotes. Binding terms are on the order form. Annual prepaid is 10 months (2 months free). LLM keys stay yours — they are not bundled in the license.
 
 **[sales@zyvor.dev](mailto:sales@zyvor.dev)** · [zyvor.dev](https://zyvor.dev)
 
-See also [`docs/LICENSING.md`](docs/LICENSING.md) for AGPL vs ACL guidance.
+## List prices
+
+| SKU | Price | What you get |
+| --- | --- | --- |
+| **Community** | $0 | AGPL. One host. No SSO, no SLA, no commercial embed. |
+| **Team (ACL)** | **$199 / month** or **$1,990 / year** | ACL (no AGPL disclosure). 1 Mission Control instance, 1 production target plus staging. Updates and email support, next business day. Enterprise v2 overlay (RBAC, durable jobs, target policy) on that instance. |
+| **Watchfloor (Enterprise)** | **$999 / month** or **$9,990 / year** | Multi-target unified findings. Keycloak / OIDC SSO. Billing and tenant isolation. Business-hours Slack and email, 8×5 IST. Onboarding call and a 30-day assisted proof of concept. |
+| **Platform / air-gap** | **Custom from $18,000 / year** | Perpetual major-version lock, plus an annual support rider (about 20% of the license). For offline plants that will not take a monthly subscription. |
+
+The license is for the control plane and the SLA. It is not priced per seat or per test run. You already pay for your own LLM and browsers.
+
+## 30-day Watchfloor trial
+
+The Enterprise trial binary stays free for 30 days. It includes a signed `trial.token`. Download it from the [trial release](https://github.com/zyvorai/argus/releases/tag/v1.1.1-ent-trial). After expiry, email [sales@zyvor.dev](mailto:sales@zyvor.dev).
+
+## Proof of concept on your cluster
+
+If you want Zyvor on the cluster for the proof of concept: **$2,500** fixed, credited against the first year.
+
+## When you need a commercial license
+
+- You deploy modified Argus as public SaaS without releasing your changes
+- You embed Argus in a closed-source product
+- You want proprietary extensions without AGPL disclosure
+- You want Watchfloor (multi-target, SSO, billing)
+
+Self-host for home or your own operations stays free under AGPL.
+
+See [`docs/LICENSING.md`](docs/LICENSING.md).

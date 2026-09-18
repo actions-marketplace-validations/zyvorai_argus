@@ -5,7 +5,7 @@ model. The open-source track is AGPL-3.0-only (see `LICENSES/AGPL-3.0-only.txt`
 and the root `LICENSE` file).
 
 Binding commercial terms are provided by Zyvor sales when you purchase an
-Argus Commercial License (ACL). A summary of options lives in
-`COMMERCIAL_LICENSE.md` at the repository root. Pricing is custom.
+Argus Commercial License (ACL). List prices (Team, Watchfloor, air-gap) live in
+`COMMERCIAL_LICENSE.md` at the repository root.
 
 Contact: sales@zyvor.dev
