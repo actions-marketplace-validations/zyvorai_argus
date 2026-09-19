@@ -1,4 +1,10 @@
+<!-- Copyright (c) 2026 ZyvorAI Labs Private Limited. -->
+<!-- SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0 -->
 # Contributing
+
+Argus is licensed under the Zyvor Production License v1.0. Non-production use is free; production use needs a commercial license. See [`docs/LICENSING.md`](docs/LICENSING.md).
+Contributions need the [CLA](CLA.md) and a DCO `Signed-off-by` line (`git commit -s`; see [DCO.md](DCO.md)).
+All participation is governed by the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 Development setup, project conventions, and how to extend the agent.
 
@@ -25,6 +31,7 @@ orchestrator/        LangGraph pipeline
   state.py           PipelineState (TypedDict) shared by all nodes
   cli.py             Typer CLI (argus …)
   webhook.py         FastAPI GitHub webhook server
+  intelligence/      test intel: classify, quarantine, select, health, studio
   nodes/             thin PipelineState -> PipelineState wrappers, one per stage
 agents/              the actual logic, one package per capability
   common/            Pydantic models + LLM factory (shared by everything)

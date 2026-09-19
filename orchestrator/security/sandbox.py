@@ -1,17 +1,5 @@
-# Copyright 2026 ZyvorAI Labs Private Limited
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
+# Copyright 2026 Zyvor AI Labs · https://zyvor.dev
+# SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
 """Sandboxed execution for LLM-generated exploit/PoC code.
 
 Real containment, not a convenience wrapper: code from the `exploit_poc` job
@@ -78,6 +66,23 @@ def cloud_pentest_image() -> str | None:
     in the default image). None if not configured — cloud_pentest fails
     closed rather than running with a generic image that lacks them."""
     return os.environ.get("ZYVOR_SANDBOX_CLOUD_IMAGE", "").strip() or None
+
+
+def db_image() -> str | None:
+    """Image for `db_assert` (needs `psycopg`/`pymysql` — not in the default
+    image; sqlite3 is stdlib but the same image serves all three engines,
+    simpler than one image per engine). None if not configured —
+    db_assert fails closed rather than running with a generic image that
+    lacks database drivers."""
+    return os.environ.get("ZYVOR_SANDBOX_DB_IMAGE", "").strip() or None
+
+
+def chaos_image() -> str | None:
+    """Image for `chaos_inject` (needs `iproute2`/`iptables` — not in the
+    default image). None if not configured — chaos_inject fails closed
+    rather than running with a generic image that lacks fault-injection
+    tooling."""
+    return os.environ.get("ZYVOR_SANDBOX_CHAOS_IMAGE", "").strip() or None
 
 
 def available() -> bool:
@@ -161,6 +166,43 @@ def run_python(
 
     Raises SandboxUnavailable if no sandbox backend is configured/reachable
     — callers must not fall back to any other execution path on this error."""
+    return _run_job(code, timeout_s=timeout_s, env=env, egress_hosts=egress_hosts, image=image, extra_capabilities=None)
+
+
+def run_chaos(
+    code: str,
+    *,
+    timeout_s: int = 60,
+    env: dict[str, str] | None = None,
+    egress_hosts: list[str] | None = None,
+    image: str | None = None,
+) -> SandboxResult:
+    """Like `run_python()`, but grants `CAP_NET_ADMIN` — needed for `tc`/
+    `iptables` fault-shaping inside the pod's own network namespace.
+
+    This is a deliberate, narrow exception to the sandbox's normal "drop ALL
+    capabilities" invariant — every other kind (`exploit_poc`, `host_pentest`,
+    `cloud_pentest`, `db_assert`, ...) runs with capabilities fully dropped.
+    Reachable ONLY from `_job_chaos_inject` — never the generic PoC path.
+    Same non-root/read-only-rootfs/no-ServiceAccount-token/resource-limits/
+    timeout hardening as `run_python()` otherwise; only the capability set
+    differs. See `kubernetes/sandbox.yaml` for the full caveat, and
+    `ROADMAP.md`'s chaos-testing section for why this exception exists."""
+    return _run_job(
+        code, timeout_s=timeout_s, env=env, egress_hosts=egress_hosts, image=image,
+        extra_capabilities=["NET_ADMIN"],
+    )
+
+
+def _run_job(
+    code: str,
+    *,
+    timeout_s: int,
+    env: dict[str, str] | None,
+    egress_hosts: list[str] | None,
+    image: str | None,
+    extra_capabilities: list[str] | None,
+) -> SandboxResult:
     if not available():
         raise SandboxUnavailable(
             "no sandbox backend available — set ZYVOR_SANDBOX_NAMESPACE to a "
@@ -196,7 +238,7 @@ def run_python(
         read_only_root_filesystem=True,
         run_as_non_root=True,
         run_as_user=65534,
-        capabilities=client.V1Capabilities(drop=["ALL"]),
+        capabilities=client.V1Capabilities(drop=["ALL"], add=extra_capabilities or None),
     )
     container = client.V1Container(
         name="poc",

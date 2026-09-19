@@ -1,17 +1,5 @@
-# Copyright 2026 ZyvorAI Labs Private Limited
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
+# Copyright 2026 Zyvor AI Labs · https://zyvor.dev
+# SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
 """Mission Control proxy for the Zyvor knowledge QA agent."""
 
 from __future__ import annotations
@@ -158,7 +146,7 @@ def knowledge_status() -> dict[str, Any]:
             "live_namespaces": live_namespaces,
             "remediation": remediation,
             "streaming": streaming,
-            "detail": "Set LLM_API_KEY (and start Qdrant) to enable Ask Zyvor",
+            "detail": "Set LLM_API_KEY (and start Qdrant) to enable Ask Zyra",
         }
 
     try:
@@ -230,7 +218,7 @@ def dashboard_remediation_resume(body: RemediationResumeBody) -> dict[str, Any]:
 
 @router.post("/api/dashboard/ask/stream")
 def dashboard_ask_stream(body: AskBody) -> Response:
-    """SSE progress stream for Ask Zyvor (POST body; fetch ReadableStream in the UI)."""
+    """SSE progress stream for Ask Zyra (POST body; fetch ReadableStream in the UI)."""
     import json
 
     from knowledge import knowledge_configured, knowledge_deps_available

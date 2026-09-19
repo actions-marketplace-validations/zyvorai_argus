@@ -9,7 +9,7 @@ stitched with the same ffmpeg title-card/caption composite pipeline as
 - `playwright` (symlinked `node_modules` — see below) with the `chrome` channel installed
 - `ffmpeg` (needs `overlay`/`fade`/`concat`/`setpts` filters — captions are pre-rendered PNGs)
 - `python3` (small float arithmetic in `build.sh`)
-- A live Mission Control deployment (`ZQA_MC_URL`, default `http://175.110.122.71:30080`) —
+- A live Mission Control deployment (`ZQA_MC_URL`, e.g. `http://127.0.0.1:30080` or your lab URL) —
   see `../deploy-remote.sh`
 
 `node_modules` here is a symlink to a sibling project's `dashboard-react/node_modules`
@@ -40,6 +40,4 @@ generated `.zyvor-argus-auth` credentials.
 
 ## Publishing
 
-Not committed here (binary, and per-run): upload the built MP4 to YouTube and
-copy it locally, following the same convention as prior demo videos (public
-visibility, title cards + captions, copy under `~/Desktop/`).
+Not committed here (binary, per-run): copy finished MP4/GIF to `docs/assets/` for README and user docs, following the regenerate steps in [`docs/assets/README.md`](../../docs/assets/README.md).

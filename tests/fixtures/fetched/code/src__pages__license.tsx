@@ -1,6 +1,5 @@
-// Copyright (c) 2026 ZyvorAI Labs Private Limited. All rights reserved.
-// Proprietary software — see LICENSE in the repository root.
-// https://zyvor.dev · info@zyvor.dev
+// Copyright 2026 Zyvor AI Labs · https://zyvor.dev
+// SPDX-License-Identifier: Apache-2.0
 
 import type {ReactNode} from 'react';
 import Link from '@docusaurus/Link';
@@ -88,7 +87,7 @@ export default function LicensePage(): ReactNode {
         >
           <p style={{color: 'var(--hs-text-muted)', fontSize: '0.92rem', lineHeight: 1.7, margin: 0}}>
             <strong style={{color: 'var(--hs-text-heading)'}}>Deploy EULA v{DEPLOY_LICENSE_VERSION}</strong> — governs
-            self-hosted binaries, containers, and customer bundles. Hosted platform use is also subject to our{' '}
+            self-hosted binaries, containers, and user bundles. Hosted platform use is also subject to our{' '}
             <Link to="/terms">Terms of Service</Link> and <Link to="/privacy">Privacy Policy</Link>. See the{' '}
             <Link to="/docs/licensing">licensing docs</Link> for the full framework. Enterprise orders may include a
             separate written agreement.

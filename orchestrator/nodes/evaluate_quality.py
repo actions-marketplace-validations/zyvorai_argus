@@ -1,17 +1,5 @@
-# Copyright 2026 ZyvorAI Labs Private Limited
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
+# Copyright 2026 Zyvor AI Labs · https://zyvor.dev
+# SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
 """Score each parsed requirement for quality/gaps, persist it (with version
 history), and surface which previously-generated tests trace to a requirement
 that changed since the last run.
@@ -26,6 +14,7 @@ requirement is a no-op here, not noise.
 from __future__ import annotations
 
 from agents.common.models import Requirement
+from agents.requirement_entities.agent import extract_requirement_entities
 from agents.requirement_quality.agent import evaluate_requirement_quality
 from orchestrator.persistence.store import get_store
 from orchestrator.state import PipelineState
@@ -57,6 +46,7 @@ def evaluate_quality(state: PipelineState) -> PipelineState:
     for req in requirements:
         result = evaluate_requirement_quality(req)
         quality[req.id] = result.model_dump()
+        entities = extract_requirement_entities(req)
 
         persisted = store.upsert_requirement(
             req.id,
@@ -66,6 +56,9 @@ def evaluate_quality(state: PipelineState) -> PipelineState:
             content=_content_for_hash(req),
             quality_score=result.score,
             quality_issues=[issue.model_dump() for issue in result.issues],
+            data_models=entities.data_models,
+            flows=entities.flows,
+            model_dependencies=[d.model_dump() for d in entities.model_dependencies],
         )
 
         if persisted["is_new_version"] and persisted["previous_version"]:

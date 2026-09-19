@@ -1,6 +1,5 @@
-// Copyright (c) 2026 ZyvorAI Labs Private Limited. All rights reserved.
-// Proprietary software — see LICENSE in the repository root.
-// https://zyvor.dev · info@zyvor.dev
+// Copyright 2026 Zyvor AI Labs · https://zyvor.dev
+// SPDX-License-Identifier: Apache-2.0
 
 import type {ReactNode} from 'react';
 import {useState} from 'react';
@@ -30,8 +29,8 @@ function DownloadSection(): ReactNode {
   const [licenceKey, setLicenceKey] = useState('');
   const [licenceEmail, setLicenceEmail] = useState('');
   const [invoiceUrl, setInvoiceUrl] = useState('');
-  const [customerName, setCustomerName] = useState('');
-  const [customerEmail, setCustomerEmail] = useState('');
+  const [userName, setUserName] = useState('');
+  const [userEmail, setUserEmail] = useState('');
   const [copied, setCopied] = useState(false);
 
   function copyKey() {
@@ -289,8 +288,8 @@ function DownloadSection(): ReactNode {
                     type="text"
                     placeholder="e.g. Rajesh Kumar"
                     autoComplete="name"
-                    value={customerName}
-                    onChange={(e) => setCustomerName(e.target.value)}
+                    value={userName}
+                    onChange={(e) => setUserName(e.target.value)}
                     style={{
                       width: '100%',
                       padding: '0.6rem 0.75rem',
@@ -323,8 +322,8 @@ function DownloadSection(): ReactNode {
                     type="email"
                     placeholder="e.g. rajesh@example.com"
                     autoComplete="email"
-                    value={customerEmail}
-                    onChange={(e) => setCustomerEmail(e.target.value)}
+                    value={userEmail}
+                    onChange={(e) => setUserEmail(e.target.value)}
                     style={{
                       width: '100%',
                       padding: '0.6rem 0.75rem',
@@ -339,19 +338,19 @@ function DownloadSection(): ReactNode {
                 </div>
               </div>
               {(() => {
-                const canPay = customerName.trim().length > 0 && customerEmail.trim().includes('@');
+                const canPay = userName.trim().length > 0 && userEmail.trim().includes('@');
                 return (
                   <RazorpayButton
                     amount={59000}
                     currency="INR"
                     productName="ZySign"
                     description="1-year licence key · macOS DSC Toolkit"
-                    customerName={customerName}
-                    customerEmail={customerEmail}
+                    userName={userName}
+                    userEmail={userEmail}
                     onSuccess={(pid, key, email, inv) => {
                       setPaymentId(pid);
                       setLicenceKey(key ?? '');
-                      setLicenceEmail(email ?? customerEmail);
+                      setLicenceEmail(email ?? userEmail);
                       setInvoiceUrl(inv ?? '');
                     }}
                     style={{

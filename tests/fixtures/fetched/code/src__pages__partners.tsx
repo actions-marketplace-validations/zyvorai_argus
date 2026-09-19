@@ -1,6 +1,5 @@
-// Copyright (c) 2026 ZyvorAI Labs Private Limited. All rights reserved.
-// Proprietary software — see LICENSE in the repository root.
-// https://zyvor.dev · info@zyvor.dev
+// Copyright 2026 Zyvor AI Labs · https://zyvor.dev
+// SPDX-License-Identifier: Apache-2.0
 
 import type {ReactNode} from 'react';
 import Link from '@docusaurus/Link';
@@ -96,7 +95,7 @@ const partnerPrograms = [
   },
   {
     title: 'MSP Partners',
-    desc: 'White-label HyperSDK Platform for your customers. Offer managed VM migration services with our multi-tenant platform, custom branding, and dedicated support.',
+    desc: 'White-label HyperSDK Platform for your users. Offer managed VM migration services with our multi-tenant platform, custom branding, and dedicated support.',
     cta: 'MSP Program Details',
     to: '/contact?intent=partners',
     accent: '#8b5cf6',

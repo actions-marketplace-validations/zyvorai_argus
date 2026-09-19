@@ -1,17 +1,5 @@
-# Copyright 2026 ZyvorAI Labs Private Limited
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
+# Copyright 2026 Zyvor AI Labs · https://zyvor.dev
+# SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
 """Integration tests for PostgresStore against a real Postgres instance.
 
 Requires TEST_POSTGRES_DSN (a real postgresql:// URL) and the `postgres`
@@ -70,6 +58,19 @@ def test_job_lifecycle(store):
     finished = store.get_job(claimed["id"])
     assert finished["status"] == "succeeded"
     assert finished["result"] == {"passed": 1}
+
+
+def test_trace_context_round_trips_through_enqueue_and_claim(store):
+    """Same cross-replica trace propagation contract as MissionControlStore
+    (tests/unit/test_persistence_store.py) -- PostgresStore is a drop-in, so
+    a traceparent persisted at enqueue time must survive a claim exactly the
+    same way."""
+    traceparent = "00-30957595af83ba0d07f0a11ce2733726-097cdd883f795456-01"
+    job = store.enqueue_job("smoke", {}, trace_context=traceparent)
+    assert job["trace_context"] == traceparent
+
+    claimed = store.claim_job()
+    assert claimed["trace_context"] == traceparent
 
 
 def test_enqueue_job_idempotency_key_returns_existing_row(store):
@@ -169,6 +170,29 @@ def test_requirement_versioning_and_traceability(store):
     fetched = store.get_requirement("req-pg")
     assert fetched["content"] == {"d": "v2"}
     assert fetched["quality_score"] == 95.0
+
+
+def test_requirement_impact_graph(store):
+    """Same contract as MissionControlStore's version
+    (tests/unit/test_requirement_store.py) -- PostgresStore is a drop-in."""
+    store.upsert_requirement(
+        "req-checkout", source_type="document", origin_id="specs/checkout.md",
+        title="Apply discount", content={"d": "checkout"},
+        data_models=["Order", "Payment"], flows=["Checkout"],
+    )
+    store.link_requirement_test("req-checkout", "tests/e2e/checkout.spec.ts")
+    store.upsert_requirement(
+        "req-orders", source_type="document", origin_id="specs/orders.md",
+        title="View past orders", content={"d": "orders"},
+        data_models=["Order"], flows=["Order history"],
+    )
+
+    graph = store.requirement_impact_graph()
+
+    assert set(graph["data_models"]["Order"]) == {"req-checkout", "req-orders"}
+    assert graph["data_models"]["Payment"] == ["req-checkout"]
+    assert graph["flows"]["Checkout"]["requirements"] == ["req-checkout"]
+    assert graph["flows"]["Checkout"]["tests"] == ["tests/e2e/checkout.spec.ts"]
 
 
 def test_upsert_requirement_concurrent_first_insert_is_race_free(store):

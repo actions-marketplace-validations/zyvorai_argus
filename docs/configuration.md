@@ -38,6 +38,28 @@ Consumed by: `github_integration/client.py`, `orchestrator/webhook.py`, `orchest
 
 ---
 
+## Requirements connectors (email / Jira / diarize)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `JIRA_BASE_URL` / `JIRA_URL` | — | Jira site base for live `--source jira` |
+| `JIRA_OAUTH_ACCESS_TOKEN` / `JIRA_ACCESS_TOKEN` | — | Preferred Bearer token (Atlassian 3LO) |
+| `JIRA_OAUTH_REFRESH_TOKEN` | — | Optional; refresh with client id/secret |
+| `JIRA_OAUTH_CLIENT_ID` / `JIRA_OAUTH_CLIENT_SECRET` | — | OAuth refresh credentials |
+| `JIRA_OAUTH_TOKEN_URL` | `https://auth.atlassian.com/oauth/token` | Token endpoint |
+| `JIRA_API_TOKEN` / `JIRA_TOKEN` | — | Fallback API token (Basic with `JIRA_USER`/`JIRA_EMAIL`, else Bearer) |
+| `IMAP_HOST` | `imap.gmail.com` | Mailbox for `--source email` without `.eml` paths |
+| `IMAP_USER` / `GMAIL_USER` | — | IMAP username |
+| `IMAP_PASSWORD` / `GMAIL_APP_PASSWORD` | — | IMAP password (Gmail app password) |
+| `IMAP_FOLDER` | `INBOX` | Folder to search |
+| `ZYVOR_DIARIZE_CMD` | — | Shell template with `{input}` / `{output}` for audio diarization |
+| `ZYVOR_DIARIZE_API_URL` | — | Alternative: POST multipart audio → text/VTT |
+| `ZYVOR_DIARIZE_API_TOKEN` | — | Optional Bearer for the diarize API |
+
+Consumed by: `agents/requirements_sources/{email,jira,diarize}.py`, `orchestrator/nodes/fetch.py`.
+
+---
+
 ## Target environment
 
 | Variable | Default | Description |
@@ -83,13 +105,14 @@ Browser log analysis (console errors, network failures) is **always on** and nee
 | `ENABLE_LLM_REPORT` | `true` | LLM plain-English report summary (stub fallback) |
 | `ENABLE_PDF_REPORT` | `true` | Render `reports/qa-summary.pdf` via headless Chromium |
 | `SLACK_WEBHOOK_URL` | — | Slack incoming webhook (block-formatted message) |
+| `SLACK_SIGNING_SECRET` | — | Signs/verifies inbound Slack slash-command requests at `POST /webhook/slack/command` (`/zyvor run <kind>` / `/zyvor status <job_id>`). Requests are rejected outright without it — no unsigned fallback. See [Tutorial 16](tutorials/16-slack-gateway.md). |
 | `TEAMS_WEBHOOK_URL` | — | Microsoft Teams webhook (MessageCard) |
 | `SMTP_HOST` | — | SMTP server; enables email when set together with `NOTIFY_EMAIL_TO` |
 | `SMTP_PORT` | `587` | SMTP port (STARTTLS is used when user+password are set) |
 | `SMTP_USER` / `SMTP_PASSWORD` | — | SMTP credentials; also used as From address |
 | `NOTIFY_EMAIL_TO` | — | Recipient address (PDF report attached when available) |
 
-Consumed by: `orchestrator/nodes/analyze.py`, `orchestrator/nodes/report.py`, `agents/reporter/*`.
+Consumed by: `orchestrator/nodes/analyze.py`, `orchestrator/nodes/report.py`, `agents/reporter/*`, `orchestrator/security/slack.py`.
 
 ---
 
@@ -100,8 +123,9 @@ Consumed by: `orchestrator/nodes/analyze.py`, `orchestrator/nodes/report.py`, `a
 | `ENABLE_AUTOFIX` | `false` | Suggest selector repairs after failures |
 | `ENABLE_AUTOFIX_APPLY` | `false` | Actually patch spec files and re-run failed tests |
 | `AUTOFIX_MAX_RETRIES` | `2` | Max apply→re-execute loops per run |
+| `SKILLS_PATH` | `.zyvor-argus/skills.json` | Skill store — confirmed autofix repairs are recorded here and reused on future runs before falling back to an LLM suggestion |
 
-Consumed by: `orchestrator/graph.py`, `orchestrator/nodes/autofix.py`, `orchestrator/nodes/apply_autofix.py`.
+Consumed by: `orchestrator/graph.py`, `orchestrator/nodes/autofix.py`, `orchestrator/nodes/apply_autofix.py`, `orchestrator/nodes/learn_skills.py`, `agents/skills/store.py`.
 
 ---
 
@@ -178,9 +202,9 @@ Consumed by: `agents/discover/crawl.py`, `playwright/scripts/crawl-site.mjs`, `p
 | `ZYVOR_THROTTLE` | *(none)* | `3g` / `offline` network emulation via CDP (set by `--throttle`) |
 | `ZYVOR_SLOW_MS` | `12000` | Live-data per-request latency budget before a page is flagged `slow` |
 
-### Knowledge RAG (optional Ask Zyvor)
+### Knowledge RAG (optional Ask Zyra)
 
-Requires Python **3.11 or 3.12**, `pip install -e ".[knowledge]"`, and a running Qdrant. Mission Control shows **Ask Zyvor**; API clients use `POST /v1/qa`.
+Requires Python **3.11 or 3.12**, `pip install -e ".[knowledge]"`, and a running Qdrant. Mission Control shows **Ask Zyra**; API clients use `POST /v1/qa`.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -192,8 +216,9 @@ Requires Python **3.11 or 3.12**, `pip install -e ".[knowledge]"`, and a running
 | `LLM_FALLBACK_MODEL` | *(none)* | Optional backup chat model used by `ModelFallbackMiddleware` |
 | `LLM_FALLBACK_API_KEY` | `LLM_API_KEY` | API key for the fallback model |
 | `LLM_FALLBACK_BASE_URL` | `LLM_BASE_URL` | Base URL for the fallback model |
-| `EMBEDDING_MODEL` | `text-embedding-3-small` | Embedding model |
-| `EMBEDDING_API_KEY` | `LLM_API_KEY` | Embedding API key |
+| `EMBEDDING_MODEL` | `text-embedding-3-small` | Embedding model (`BAAI/bge-small-en-v1.5` with FastEmbed) |
+| `EMBEDDING_BACKEND` | *(empty → OpenAI-compatible)* | Set `fastembed` / `local` for on-box FastEmbed (no remote embeddings API) |
+| `EMBEDDING_API_KEY` | `LLM_API_KEY` | Embedding API key (unused when `EMBEDDING_BACKEND=fastembed`) |
 | `EMBEDDING_BASE_URL` | *(none)* | OpenAI-compatible embeddings URL |
 | `EMBEDDING_DIMENSIONS` | *(none)* | Optional fixed embedding dimensions |
 | `QDRANT_URL` | `http://localhost:6333` | Qdrant HTTP endpoint |
@@ -202,12 +227,12 @@ Requires Python **3.11 or 3.12**, `pip install -e ".[knowledge]"`, and a running
 | `APP_API_KEY` | *(none)* | Shared key for `POST /v1/qa` (dev). Prefer `AUTH_TOKENS_JSON` in production. |
 | `AUTH_TOKENS_JSON` | *(empty)* | JSON map of API token → `{tenant_id, access_levels}` |
 | `TRUST_CLIENT_TENANT_HEADER` | `false` | If `false` (default) and no `AUTH_TOKENS_JSON` mapping is configured, requests are refused rather than trusting a client-supplied `X-Tenant-ID` header. Only enable for trusted, network-isolated internal deployments — never for tenant-facing/external clients. |
-| `DEFAULT_ACCESS_LEVELS` | `public,customer` | Levels a non-mapped key may request |
+| `DEFAULT_ACCESS_LEVELS` | `public,user` | Levels a non-mapped key may request |
 | `KNOWLEDGE_TENANT_ID` | `public` | Tenant used by Mission Control ask proxy (never from the browser) |
-| `KNOWLEDGE_ACCESS_LEVELS` | `public,customer` | Access levels for Mission Control ask proxy |
+| `KNOWLEDGE_ACCESS_LEVELS` | `public,user` | Access levels for Mission Control ask proxy |
 | `KNOWLEDGE_CHECKPOINT_PATH` | `reports/knowledge-checkpoints.sqlite` | SQLite path for conversation checkpoints (`:memory:` for ephemeral) |
-| `ENABLE_LIVE_CLUSTER_TOOLS` | `false` | Opt-in read-only live K8s/KubeVirt/Cilium/Hubble/Ceph/node tools in Ask Zyvor |
-| `ENABLE_REMEDIATION_AGENT` | `false` | Separate HITL remediation planner (`POST /v1/remediation`); not part of Ask Zyvor |
+| `ENABLE_LIVE_CLUSTER_TOOLS` | `false` | Opt-in read-only live K8s/KubeVirt/Cilium/Hubble/Ceph/node tools in Ask Zyra |
+| `ENABLE_REMEDIATION_AGENT` | `false` | Separate HITL remediation planner (`POST /v1/remediation`); not part of Ask Zyra |
 | `ENABLE_REMEDIATION_EXECUTOR` | `false` | After HITL approve, allowlisted pod restarts may execute |
 | `REMEDIATION_RESTART_NAMESPACES` | *(empty — deny all)* | Namespaces where approved restarts may run (`*` for any) |
 | `REMEDIATION_RESTART_NAME_PREFIXES` | *(empty — any name in allowlisted NS)* | Optional pod name prefixes required for executor restarts |
@@ -222,13 +247,15 @@ Requires Python **3.11 or 3.12**, `pip install -e ".[knowledge]"`, and a running
 
 Eval / observability: set `LANGSMITH_API_KEY` and run `argus ask evaluate --langsmith` to send traces to LangSmith (`LANGCHAIN_PROJECT`, default `zyvor-knowledge-eval`).
 
-Start Qdrant: `docker compose -f docker/docker-compose.yml up -d qdrant`. Ingest samples: `argus ask ingest knowledge_docs/sample --tenant-id public --access-level public`. See [Tutorial 14](tutorials/14-ask-zyvor-knowledge.md).
+Start Qdrant: `docker compose -f docker/docker-compose.yml up -d qdrant`. Ingest samples: `argus ask ingest knowledge_docs/sample --tenant-id public --access-level public`. See [Tutorial 14](tutorials/14-ask-zyra-knowledge.md).
 
 The **🎬 Flow test** action (`flow` job / `argus flow run`) drives a multi-step journey recorded as one video, with a Playwright `trace.zip` (open at trace.playwright.dev) and richer assertions (`assert_not` / `assert_count` / `assert_value` / `assert_url` / `assert_api` / `assert_aria` / `upload` / `download` / `dialog` / `iframe` / `clock` / `wait_until`); the **🗺 Route sweep** action (`route_sweep` / `argus vision route-sweep`) screenshots routes at desktop/mobile and diffs them against baselines under `reports/artifacts/route-baselines/`, and can `--auto`-discover routes by crawling. **📼 HAR record/replay** (`har_replay` / `argus api har-replay`) captures network as HAR then drives the UI against it. **📥 Import codegen** (`import_codegen` / `argus test import-codegen`) turns pasted Playwright codegen into flow steps (optionally runs them). Both honour `ZYVOR_IGNORE_HTTPS_ERRORS`, `ZYVOR_NO_SANDBOX`, and (flow) `ZYVOR_VIDEO`, and both are schedulable. Serve the dashboard over HTTPS with `argus serve --tls` (self-signed cert under `~/.zyvor-argus/tls`) or the deploy script's `--tls`. A target-site login password passed to a flow/crawl is redacted (`***`) from the job-status API, history, and live panel — it is never echoed back to a dashboard reader. See [Tutorial 11](tutorials/11-flow-tests.md).
 
 Four **product-testing** actions go beyond the page (see [Tutorial 12](tutorials/12-api-auth-realtime.md)): **🔌 API contract** (`api_contract` / `argus api test`) validates REST endpoints against their OpenAPI schema and runs multi-step API workflows; **🔐 Auth & session** (`auth_test` / `argus api auth-test`) logs in, saves a reusable session under `reports/artifacts/auth/`, and asserts logout/expiry/negative-auth — the saved session can be reused by `flow`/`realtime` via their `session` param; **📡 Live data** (`realtime` / `argus flow realtime`) asserts WebSocket/SSE streams are live (Bearer / `Sec-WebSocket-Protocol` / one-time ticket auth); **📊 Web Vitals** (`vitals` / `argus watch vitals`) grades LCP/CLS/INP with device + network throttle.
 
 The dashboard's audit, probe, screenshot, compare, ping, load-test, TLS, flaky, and schedule actions are entirely UI/API-driven — no extra environment variables. They persist artifacts (videos, screenshots, diff images, and HTML/PDF/Markdown/CSV report bundles) under `reports/` (PVC-backed on Kubernetes).
+
+**Test intelligence** (`argus intel …`, `GET/POST/DELETE /api/v2/intel/*`, job kind `select_tests`) is also UI/API/CLI-driven with no extra env vars. Quarantine entries live in `reports/quarantine.json` (TTL + owner). `select_tests` and `POST /api/v2/intel/select` are static analysis — no engagement required.
 
 The dashboard is served by `argus serve` at `/dashboard`. Cluster access resolves in-cluster config first, then local kubeconfig; with neither, the pod panels show an offline state and QA run history still works. See [Tutorial 10](tutorials/10-mission-control-dashboard.md).
 

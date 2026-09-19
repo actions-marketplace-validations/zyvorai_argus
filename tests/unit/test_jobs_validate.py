@@ -1,17 +1,5 @@
-# Copyright 2026 ZyvorAI Labs Private Limited
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
+# Copyright 2026 Zyvor AI Labs · https://zyvor.dev
+# SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
 """Unit tests for dashboard job parameter validation (orchestrator/dashboard/jobs.py)."""
 
 from __future__ import annotations
@@ -158,6 +146,56 @@ def test_api_contract_max_endpoints_clamped():
     clean = _validate("api_contract", {"url": "https://api.x.io", "mode": "spec",
                                         "spec": {"paths": {}}, "max_endpoints": 9999})
     assert clean["max_endpoints"] == 200
+
+
+def test_api_contract_diff_accepts_inline_specs():
+    clean = _validate("api_contract_diff", {"spec_a": {"paths": {}}, "spec_b": {"paths": {}}})
+    assert clean["spec_a"] == {"paths": {}}
+    assert clean["fail_on"] == "breaking"
+
+
+def test_api_contract_diff_validates_and_ssrf_checks_url_refs():
+    clean = _validate("api_contract_diff", {
+        "spec_a": "https://api.x.io/openapi.json", "spec_b": {"paths": {}},
+    })
+    assert clean["spec_a"] == "https://api.x.io/openapi.json"
+
+
+def test_api_contract_diff_rejects_ssrf_target_for_url_ref():
+    with pytest.raises(ValueError):
+        _validate("api_contract_diff", {"spec_a": "http://169.254.169.254/openapi.json", "spec_b": {"paths": {}}})
+
+
+def test_api_contract_diff_accepts_git_ref():
+    clean = _validate("api_contract_diff", {"spec_a": "git:main:openapi.json", "spec_b": {"paths": {}}})
+    assert clean["spec_a"] == "git:main:openapi.json"
+
+
+def test_api_contract_diff_rejects_missing_spec():
+    with pytest.raises(ValueError):
+        _validate("api_contract_diff", {"spec_a": {"paths": {}}})
+
+
+def test_api_contract_diff_rejects_unsupported_spec_shape():
+    with pytest.raises(ValueError):
+        _validate("api_contract_diff", {"spec_a": 12345, "spec_b": {"paths": {}}})
+
+
+def test_api_contract_diff_fail_on_any():
+    clean = _validate("api_contract_diff", {
+        "spec_a": {"paths": {}}, "spec_b": {"paths": {}}, "fail_on": "any",
+    })
+    assert clean["fail_on"] == "any"
+
+
+def test_api_contract_diff_is_not_elevated_risk():
+    """Pure static diff, no live target interaction -- unlike misconfig_scan/
+    cve_lookup, this kind must not require an engagement."""
+    from orchestrator.dashboard.jobs import ELEVATED_RISK_KINDS
+
+    assert "api_contract_diff" not in ELEVATED_RISK_KINDS
+    # and _validate() must succeed with no engagement_id at all
+    _validate("api_contract_diff", {"spec_a": {"paths": {}}, "spec_b": {"paths": {}}})
 
 
 def test_vitals_requires_url_scheme():
@@ -517,6 +555,149 @@ def test_cve_lookup_clean_defaults(monkeypatch):
     assert clean["url"].startswith("https://x.io")
 
 
+def test_contract_verify_requires_har(monkeypatch):
+    _allow_engagement(monkeypatch)
+    with pytest.raises(ValueError, match="HAR"):
+        _validate("contract_verify", {"url": "https://x.io", "engagement_id": "eng-1"})
+
+
+def test_contract_verify_clean_defaults(monkeypatch):
+    _allow_engagement(monkeypatch)
+    clean = _validate("contract_verify", {"url": "https://x.io", "har": "/tmp/x.har", "engagement_id": "eng-1"})
+    assert clean["har"] == "/tmp/x.har"
+    assert clean["max_endpoints"] == 60
+
+
+def test_contract_verify_reject_missing_engagement(monkeypatch):
+    monkeypatch.setattr(_store_module, "get_store", lambda: _FakeEngagementStore(None))
+    with pytest.raises(ValueError, match="authorized security engagement"):
+        _validate("contract_verify", {"url": "https://x.io", "har": "/tmp/x.har"})
+
+
+def test_sca_scan_requires_url_or_checkout_path():
+    with pytest.raises(ValueError, match="checkout_path"):
+        _validate("sca_scan", {})
+
+
+def test_sca_scan_blackbox_mode_requires_engagement(monkeypatch):
+    monkeypatch.setattr(_store_module, "get_store", lambda: _FakeEngagementStore(None))
+    with pytest.raises(ValueError, match="authorized security engagement"):
+        _validate("sca_scan", {"url": "https://x.io"})
+
+
+def test_sca_scan_local_checkout_only_mode_needs_no_engagement():
+    """checkout_path reads an operator-local filesystem path -- no target,
+    no engagement, unlike every other kind in ELEVATED_RISK_KINDS."""
+    clean = _validate("sca_scan", {"checkout_path": "/repo/checkout"})
+    assert clean["checkout_path"] == "/repo/checkout"
+    assert clean["url"] == ""
+    assert clean["engagement_id"] is None
+
+
+def test_sca_scan_both_modes_together(monkeypatch):
+    _allow_engagement(monkeypatch)
+    clean = _validate("sca_scan", {"url": "https://x.io", "checkout_path": "/repo", "engagement_id": "eng-1"})
+    assert clean["url"].startswith("https://x.io")
+    assert clean["checkout_path"] == "/repo"
+
+
+# --- db_assert: 'active_recon' engagement tier PLUS a separate,
+# independent ZYVOR_DB_TESTING_ENABLED opt-in (fail-closed default). Read-
+# only, but touches live data with real credentials -- one gate, not
+# exploit_poc's three-gate stack.
+
+def _db_assert_params(**overrides):
+    params = {
+        "engine": "postgres", "target": "staging-orders-db",
+        "db_secret": {"$secret": "env:DB_DSN"}, "query": "SELECT * FROM orders",
+        "assertion": {"mode": "row_count", "op": "==", "value": 1}, "engagement_id": "eng-1",
+    }
+    params.update(overrides)
+    return params
+
+
+def test_db_assert_registered():
+    assert "db_assert" in VALID_KINDS
+
+
+def test_db_assert_disabled_by_default(monkeypatch):
+    monkeypatch.delenv("ZYVOR_DB_TESTING_ENABLED", raising=False)
+    with pytest.raises(ValueError, match="ZYVOR_DB_TESTING_ENABLED"):
+        _validate("db_assert", _db_assert_params())
+
+
+def test_db_assert_rejects_invalid_engine(monkeypatch):
+    monkeypatch.setenv("ZYVOR_DB_TESTING_ENABLED", "true")
+    _allow_engagement(monkeypatch)
+    with pytest.raises(ValueError, match="engine"):
+        _validate("db_assert", _db_assert_params(engine="mssql"))
+
+
+def test_db_assert_requires_secret_ref_not_raw_value(monkeypatch):
+    monkeypatch.setenv("ZYVOR_DB_TESTING_ENABLED", "true")
+    _allow_engagement(monkeypatch)
+    with pytest.raises(ValueError, match="db_secret"):
+        _validate("db_assert", _db_assert_params(db_secret="postgresql://user:pass@host/db"))
+
+
+def test_db_assert_rejects_non_select_query(monkeypatch):
+    monkeypatch.setenv("ZYVOR_DB_TESTING_ENABLED", "true")
+    _allow_engagement(monkeypatch)
+    with pytest.raises(ValueError, match="SELECT"):
+        _validate("db_assert", _db_assert_params(query="DELETE FROM orders"))
+
+
+def test_db_assert_requires_target_label(monkeypatch):
+    monkeypatch.setenv("ZYVOR_DB_TESTING_ENABLED", "true")
+    _allow_engagement(monkeypatch)
+    with pytest.raises(ValueError, match="target"):
+        _validate("db_assert", _db_assert_params(target=""))
+
+
+def test_db_assert_rejects_invalid_assertion_shape(monkeypatch):
+    monkeypatch.setenv("ZYVOR_DB_TESTING_ENABLED", "true")
+    _allow_engagement(monkeypatch)
+    with pytest.raises(ValueError, match="assertion"):
+        _validate("db_assert", _db_assert_params(assertion={"mode": "bogus"}))
+    with pytest.raises(ValueError, match="assertion"):
+        _validate("db_assert", _db_assert_params(assertion="not a dict"))
+
+
+def test_db_assert_clean_defaults(monkeypatch):
+    monkeypatch.setenv("ZYVOR_DB_TESTING_ENABLED", "true")
+    _allow_engagement(monkeypatch)
+    clean = _validate("db_assert", _db_assert_params())
+    assert clean["engine"] == "postgres"
+    assert clean["target"] == "staging-orders-db"
+    assert clean["db_secret"] == {"$secret": "env:DB_DSN"}
+    assert clean["query"] == "SELECT * FROM orders"
+    assert clean["query_params"] == []
+    assert clean["timeout_s"] == 30
+
+
+def test_db_assert_timeout_clamped(monkeypatch):
+    monkeypatch.setenv("ZYVOR_DB_TESTING_ENABLED", "true")
+    _allow_engagement(monkeypatch)
+    clean = _validate("db_assert", _db_assert_params(timeout_s=9999))
+    assert clean["timeout_s"] == 120
+
+
+def test_db_assert_query_params_must_be_a_list(monkeypatch):
+    monkeypatch.setenv("ZYVOR_DB_TESTING_ENABLED", "true")
+    _allow_engagement(monkeypatch)
+    clean = _validate("db_assert", _db_assert_params(query_params="not-a-list"))
+    assert clean["query_params"] == []  # silently normalized, matching workflow/path_params dict-shape precedent
+
+
+def test_db_assert_rejects_missing_engagement(monkeypatch):
+    """Sanity check that db_assert really is gated at the engagement layer,
+    independent of the ZYVOR_DB_TESTING_ENABLED opt-in above."""
+    monkeypatch.setenv("ZYVOR_DB_TESTING_ENABLED", "true")
+    monkeypatch.setattr(_store_module, "get_store", lambda: _FakeEngagementStore(None))
+    with pytest.raises(ValueError, match="authorized security engagement"):
+        _validate("db_assert", _db_assert_params(engagement_id=None))
+
+
 def test_llm_redteam_dashboard_ask_needs_no_url(monkeypatch):
     _allow_engagement(monkeypatch, target_pattern="dashboard_ask")
     clean = _validate("llm_redteam", {"engagement_id": "eng-1"})
@@ -816,3 +997,195 @@ def test_cloud_pentest_happy_path(monkeypatch):
     assert clean["provider"] == "aws"
     assert clean["target"] == "aws-prod-123456789012"
     _disable_exploit_env(monkeypatch)
+
+
+# --- chaos_inject / chaos_webhook: 'exploit'-tier engagement PLUS a
+# separate ZYVOR_CHAOS_INJECTION_ENABLED opt-in PLUS a per-run
+# target_accepts_fault_injection attestation (three gates total).
+
+def _base_chaos_params(**overrides):
+    params = {
+        "url": "https://x.io", "target_accepts_fault_injection": True,
+        "control_kind": "flow", "control_params": {"description": "assert \"x\" is visible"},
+        "engagement_id": "eng-1",
+    }
+    params.update(overrides)
+    return params
+
+
+def test_chaos_kinds_registered():
+    assert "chaos_inject" in VALID_KINDS
+    assert "chaos_webhook" in VALID_KINDS
+
+
+def test_chaos_inject_disabled_by_default(monkeypatch):
+    monkeypatch.delenv("ZYVOR_CHAOS_INJECTION_ENABLED", raising=False)
+    with pytest.raises(ValueError, match="ZYVOR_CHAOS_INJECTION_ENABLED"):
+        _validate("chaos_inject", _base_chaos_params(fault_type="latency"))
+
+
+def test_chaos_webhook_disabled_by_default(monkeypatch):
+    monkeypatch.delenv("ZYVOR_CHAOS_INJECTION_ENABLED", raising=False)
+    with pytest.raises(ValueError, match="ZYVOR_CHAOS_INJECTION_ENABLED"):
+        _validate("chaos_webhook", _base_chaos_params(experiment_webhook_url="https://api.x.io/start"))
+
+
+def test_chaos_inject_requires_target_attestation(monkeypatch):
+    monkeypatch.setenv("ZYVOR_CHAOS_INJECTION_ENABLED", "true")
+    with pytest.raises(ValueError, match="target_accepts_fault_injection"):
+        _validate("chaos_inject", _base_chaos_params(fault_type="latency", target_accepts_fault_injection=False))
+    with pytest.raises(ValueError, match="target_accepts_fault_injection"):
+        _validate("chaos_inject", {k: v for k, v in _base_chaos_params(fault_type="latency").items()
+                                    if k != "target_accepts_fault_injection"})
+
+
+def test_chaos_inject_rejects_invalid_fault_type(monkeypatch):
+    monkeypatch.setenv("ZYVOR_CHAOS_INJECTION_ENABLED", "true")
+    _allow_engagement(monkeypatch, tier="exploit")
+    with pytest.raises(ValueError, match="fault_type"):
+        _validate("chaos_inject", _base_chaos_params(fault_type="bogus"))
+
+
+def test_chaos_inject_rejects_disallowed_control_kind(monkeypatch):
+    monkeypatch.setenv("ZYVOR_CHAOS_INJECTION_ENABLED", "true")
+    _allow_engagement(monkeypatch, tier="exploit")
+    with pytest.raises(ValueError, match="control_kind"):
+        _validate("chaos_inject", _base_chaos_params(fault_type="latency", control_kind="exploit_poc", control_params={}))
+
+
+def test_chaos_inject_rejects_active_recon_tier_engagement(monkeypatch):
+    monkeypatch.setenv("ZYVOR_CHAOS_INJECTION_ENABLED", "true")
+    _allow_engagement(monkeypatch, tier="active_recon")
+    with pytest.raises(ValueError, match="insufficient"):
+        _validate("chaos_inject", _base_chaos_params(fault_type="latency"))
+
+
+def test_chaos_inject_caps_are_enforced(monkeypatch):
+    monkeypatch.setenv("ZYVOR_CHAOS_INJECTION_ENABLED", "true")
+    _allow_engagement(monkeypatch, tier="exploit")
+    clean = _validate("chaos_inject", _base_chaos_params(
+        fault_type="latency", latency_ms=99999, packet_loss_pct=999, duration_s=99999,
+    ))
+    assert clean["latency_ms"] == 5000
+    assert clean["packet_loss_pct"] == 100
+    assert clean["duration_s"] == 120
+
+
+def test_chaos_inject_clean_defaults(monkeypatch):
+    monkeypatch.setenv("ZYVOR_CHAOS_INJECTION_ENABLED", "true")
+    _allow_engagement(monkeypatch, tier="exploit")
+    clean = _validate("chaos_inject", _base_chaos_params(fault_type="latency"))
+    assert clean["fault_type"] == "latency"
+    assert clean["control_kind"] == "flow"
+    assert clean["control_params"]["url"].startswith("https://x.io")  # url injected into control_params
+    assert clean["error_rate_threshold_pct"] == 10.0
+    assert clean["recovery_sla_s"] == 30.0
+
+
+def test_chaos_webhook_requires_experiment_webhook_url(monkeypatch):
+    monkeypatch.setenv("ZYVOR_CHAOS_INJECTION_ENABLED", "true")
+    _allow_engagement(monkeypatch, tier="exploit")
+    with pytest.raises(ValueError, match="experiment_webhook_url"):
+        _validate("chaos_webhook", _base_chaos_params())
+
+
+def test_chaos_webhook_rejects_ssrf_target_for_experiment_url(monkeypatch):
+    monkeypatch.setenv("ZYVOR_CHAOS_INJECTION_ENABLED", "true")
+    _allow_engagement(monkeypatch, tier="exploit")
+    with pytest.raises(ValueError):
+        _validate("chaos_webhook", _base_chaos_params(experiment_webhook_url="http://169.254.169.254/start"))
+
+
+def test_chaos_webhook_clean_defaults(monkeypatch):
+    monkeypatch.setenv("ZYVOR_CHAOS_INJECTION_ENABLED", "true")
+    _allow_engagement(monkeypatch, tier="exploit")
+    clean = _validate("chaos_webhook", _base_chaos_params(
+        experiment_webhook_url="https://api.x.io/start", experiment_stop_webhook_url="https://api.x.io/stop",
+    ))
+    assert clean["experiment_webhook_url"] == "https://api.x.io/start"
+    assert clean["experiment_stop_webhook_url"] == "https://api.x.io/stop"
+    assert clean["settle_s"] == 5
+
+
+# --- Network-attack / DAST kinds -------------------------------------------------
+
+@pytest.mark.parametrize(
+    "kind",
+    [
+        "port_scan", "tls_cipher_scan", "dast_scan", "injection_scan",
+        "csrf_probe", "ssrf_probe", "auth_attack_scan", "idor_scan",
+    ],
+)
+def test_network_attack_kinds_registered(kind):
+    assert kind in VALID_KINDS
+
+
+def test_port_scan_active_recon_happy(monkeypatch):
+    _allow_engagement(monkeypatch, tier="active_recon")
+    clean = _validate("port_scan", {"url": "https://x.io", "engagement_id": "eng-1", "ports": "22,80,443"})
+    assert clean["ports"] == [22, 80, 443]
+    assert clean["url"].startswith("https://x.io")
+
+
+def test_port_scan_rejects_exploit_only_when_missing_engagement(monkeypatch):
+    monkeypatch.setattr(_store_module, "get_store", lambda: _FakeEngagementStore(None))
+    with pytest.raises(ValueError):
+        _validate("port_scan", {"url": "https://x.io"})
+
+
+def test_tls_cipher_scan_happy(monkeypatch):
+    _allow_engagement(monkeypatch, tier="active_recon")
+    clean = _validate("tls_cipher_scan", {"url": "https://x.io", "engagement_id": "eng-1", "port": 8443})
+    assert clean["port"] == 8443
+
+
+@pytest.mark.parametrize(
+    "kind",
+    ["dast_scan", "injection_scan", "csrf_probe", "ssrf_probe", "auth_attack_scan", "idor_scan"],
+)
+def test_dast_kinds_disabled_by_default(monkeypatch, kind):
+    monkeypatch.delenv("ZYVOR_DAST_SCAN_ENABLED", raising=False)
+    _allow_engagement(monkeypatch, tier="exploit")
+    with pytest.raises(ValueError, match="ZYVOR_DAST_SCAN_ENABLED"):
+        _validate(kind, {"url": "https://x.io", "engagement_id": "eng-1"})
+
+
+@pytest.mark.parametrize(
+    "kind",
+    ["dast_scan", "injection_scan", "csrf_probe", "ssrf_probe", "auth_attack_scan", "idor_scan"],
+)
+def test_dast_kinds_reject_active_recon_tier(monkeypatch, kind):
+    monkeypatch.setenv("ZYVOR_DAST_SCAN_ENABLED", "true")
+    _allow_engagement(monkeypatch, tier="active_recon")
+    with pytest.raises(ValueError, match="insufficient"):
+        _validate(kind, {"url": "https://x.io", "engagement_id": "eng-1"})
+    monkeypatch.delenv("ZYVOR_DAST_SCAN_ENABLED", raising=False)
+
+
+def test_dast_scan_happy_path(monkeypatch):
+    monkeypatch.setenv("ZYVOR_DAST_SCAN_ENABLED", "true")
+    _allow_engagement(monkeypatch, tier="exploit")
+    clean = _validate(
+        "dast_scan",
+        {
+            "url": "https://x.io",
+            "engagement_id": "eng-1",
+            "modules": "headers,injection",
+            "max_requests": 999,
+        },
+    )
+    assert clean["modules"] == ["headers", "injection"]
+    assert clean["max_requests"] == 80  # capped
+    monkeypatch.delenv("ZYVOR_DAST_SCAN_ENABLED", raising=False)
+
+
+def test_idor_scan_accepts_cookie(monkeypatch):
+    monkeypatch.setenv("ZYVOR_DAST_SCAN_ENABLED", "true")
+    _allow_engagement(monkeypatch, tier="exploit")
+    clean = _validate(
+        "idor_scan",
+        {"url": "https://x.io/orders/1", "engagement_id": "eng-1", "cookie": "sid=abc", "delta": 9},
+    )
+    assert clean["cookie"] == "sid=abc"
+    assert clean["delta"] == 5  # capped
+    monkeypatch.delenv("ZYVOR_DAST_SCAN_ENABLED", raising=False)

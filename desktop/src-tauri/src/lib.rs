@@ -1,16 +1,5 @@
-// Copyright 2026 ZyvorAI Labs Private Limited
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+// Copyright 2026 Zyvor AI Labs · https://zyvor.dev
+// SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
 
 mod paths;
 mod server;
@@ -43,7 +32,7 @@ fn open_settings_window(app: &AppHandle) {
     }
     let _ = WebviewWindowBuilder::new(app, "settings", WebviewUrl::App("settings.html".into()))
         .title("Zyvor Argus Settings")
-        .inner_size(440.0, 300.0)
+        .inner_size(440.0, 380.0)
         .resizable(false)
         .build();
 }
@@ -121,7 +110,11 @@ pub fn run() {
         .setup(|app| {
             setup_menu(app.handle())?;
             let settings = paths::load_settings();
-            server::start_in_background(app.handle().clone(), settings.argus_bin);
+            server::start_in_background(
+                app.handle().clone(),
+                settings.argus_bin,
+                settings.remote_url,
+            );
             Ok(())
         })
         .build(tauri::generate_context!())

@@ -15,11 +15,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: '20'
 
@@ -31,6 +31,18 @@ jobs:
 
       - name: Unit tests
         run: pytest tests/unit -q
+
+      - name: CLI help groups
+        run: |
+          argus --help | tee /tmp/argus-help.txt
+          grep -q 'Operate' /tmp/argus-help.txt
+          grep -q 'Testing' /tmp/argus-help.txt
+          grep -q 'Security' /tmp/argus-help.txt
+          grep -q 'Watch' /tmp/argus-help.txt
+          argus guard --help | tee /tmp/argus-guard-help.txt
+          grep -q 'Scan' /tmp/argus-guard-help.txt
+          grep -q 'Attack' /tmp/argus-guard-help.txt
+          grep -q 'Gate' /tmp/argus-guard-help.txt
 
       - name: Node syntax check (Playwright scripts)
         run: |
@@ -45,11 +57,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: '20'
           cache: npm
@@ -60,13 +72,13 @@ jobs:
       - name: Validate Kubernetes manifests
         run: python3 scripts/validate_k8s_manifests.py
 
-      - name: Customer docs are up to date with routes.json/page-purposes.json
+      - name: User docs are up to date with routes.json/page-purposes.json
         run: |
           npm run docs:guides
-          git diff --exit-code -- docs/customer/ || {
-            echo "::error::docs/customer/ is stale — run 'npm run docs:guides' and commit the result."
+          git diff --exit-code -- docs/user/ || {
+            echo "::error::docs/user/ is stale — run 'npm run docs:guides' and commit the result."
             exit 1
           }
 
-      - name: Check customer docs for broken relative links
+      - name: Check user docs for broken relative links
         run: npm run docs:links

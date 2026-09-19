@@ -1,17 +1,5 @@
-# Copyright 2026 ZyvorAI Labs Private Limited
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
+# Copyright 2026 Zyvor AI Labs · https://zyvor.dev
+# SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
 """Durable Mission Control job and schedule service.
 
 It wraps the existing `orchestrator.dashboard.jobs` execution functions, while
@@ -21,12 +9,13 @@ to PostgreSQL/Temporal without changing `/api/v2`.
 
 from __future__ import annotations
 
+import os
 import threading
 import time
 from typing import Any
 
 from orchestrator.observability.metrics import inc, set_gauge
-from orchestrator.observability.tracing import set_span_error, start_span
+from orchestrator.observability.tracing import current_traceparent, set_span_error, start_span
 from orchestrator.persistence.store import MissionControlStore, get_store
 from orchestrator.security.secrets import is_secret_ref, resolve_secret_refs
 
@@ -73,13 +62,18 @@ class DurableJobService:
 
         # Validate shape immediately, substituting harmless placeholders for refs.
         jobs._validate(kind, _validation_view(params))
-        job = self.store.enqueue_job(
-            kind,
-            params,
-            requested_by=requested_by,
-            idempotency_key=idempotency_key,
-            priority=priority,
-        )
+        with start_span("job.enqueue", job_kind=kind) as span:
+            trace_context = current_traceparent() if span else None
+            job = self.store.enqueue_job(
+                kind,
+                params,
+                requested_by=requested_by,
+                idempotency_key=idempotency_key,
+                priority=priority,
+                trace_context=trace_context,
+            )
+            if span:
+                span.set_attribute("job.id", job["id"])
         self.store.audit(
             "job.enqueue", actor=requested_by, resource_type="job", resource_id=job["id"],
             detail={"kind": kind, "params": params},
@@ -100,7 +94,9 @@ class DurableJobService:
             job_id = job["id"]
             kind = job["kind"]
             started_at = time.monotonic()
-            with start_span("job.execute", job_id=job_id, job_kind=kind) as span:
+            with start_span(
+                "job.execute", trace_context=job.get("trace_context"), job_id=job_id, job_kind=kind
+            ) as span:
                 try:
                     params = resolve_secret_refs(job["params"])
                     started, _ = jobs.trigger(kind, params)
@@ -148,8 +144,20 @@ class DurableJobService:
         while not self._stop.is_set():
             due = self.store.due_schedules()
             set_gauge("zyvor_qa_schedules_due", len(due))
+            skip_if_busy = os.environ.get("ZYVOR_SCHEDULE_SKIP_IF_BUSY", "false").lower() in {
+                "1",
+                "true",
+                "yes",
+                "on",
+            }
             for schedule in due:
                 try:
+                    if skip_if_busy:
+                        from orchestrator.dashboard import jobs as jobs_mod
+
+                        if jobs_mod.status().get("running"):
+                            # Preserve due time until the runner is free (do not advance).
+                            continue
                     self.enqueue(
                         schedule["kind"],
                         schedule["params"],
@@ -170,7 +178,15 @@ class DurableJobService:
 
 def _validation_view(value: Any) -> Any:
     if is_secret_ref(value):
-        return "secret-reference-placeholder"
+        # Keep the {"$secret": "env:NAME"} shape rather than collapsing to a
+        # bare string -- some kinds (db_assert) re-check is_secret_ref() on
+        # their own param directly during _validate(), and a bare string
+        # would fail that check even though the real, unmodified `params`
+        # (not this view) is what actually gets persisted/executed. The
+        # placeholder ref name must still satisfy _validate_ref()'s "env:"/
+        # "file:" prefix requirement so nested assert_persistable() checks
+        # (e.g. host_pentest/cloud_pentest's creds) pass too.
+        return {"$secret": "env:VALIDATION_PLACEHOLDER"}
     if isinstance(value, dict):
         return {k: _validation_view(v) for k, v in value.items()}
     if isinstance(value, list):

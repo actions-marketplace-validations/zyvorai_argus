@@ -1,17 +1,5 @@
-# Copyright 2026 ZyvorAI Labs Private Limited
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
+# Copyright 2026 Zyvor AI Labs · https://zyvor.dev
+# SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
 """Tests for query understanding."""
 
 from __future__ import annotations
@@ -41,6 +29,6 @@ def test_migration_intent_and_product() -> None:
 def test_followup_rewrite_with_hint() -> None:
     result = understand_query(
         "How do I fix that on the other cluster?",
-        conversation_hint="Hubble Relay timeout on customer K3s",
+        conversation_hint="Hubble Relay timeout on user K3s",
     )
     assert "Hubble Relay" in result.rewritten_question

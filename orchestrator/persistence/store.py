@@ -1,17 +1,5 @@
-# Copyright 2026 ZyvorAI Labs Private Limited
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
+# Copyright 2026 Zyvor AI Labs · https://zyvor.dev
+# SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
 """SQLite persistence for jobs, schedules, findings, audit and webhook replay protection.
 
 SQLite is the zero-dependency default. The repository interface is deliberately
@@ -35,7 +23,7 @@ from typing import Any, Iterator
 from orchestrator.security.redaction import redact
 from orchestrator.security.secrets import assert_persistable
 
-_SCHEMA_VERSION = 3
+_SCHEMA_VERSION = 6
 
 DEFAULT_MAX_JOB_ATTEMPTS = 3
 
@@ -106,7 +94,8 @@ class MissionControlStore:
                     result_json TEXT,
                     error TEXT,
                     cancel_requested INTEGER NOT NULL DEFAULT 0,
-                    attempt INTEGER NOT NULL DEFAULT 0
+                    attempt INTEGER NOT NULL DEFAULT 0,
+                    trace_context TEXT
                 );
                 CREATE UNIQUE INDEX IF NOT EXISTS jobs_idempotency_uq
                     ON jobs(idempotency_key) WHERE idempotency_key IS NOT NULL;
@@ -204,6 +193,9 @@ class MissionControlStore:
                     quality_score REAL,
                     quality_issues_json TEXT,
                     created_at TEXT NOT NULL,
+                    data_models_json TEXT,
+                    flows_json TEXT,
+                    model_dependencies_json TEXT,
                     PRIMARY KEY (requirement_id, version)
                 );
 
@@ -224,6 +216,25 @@ class MissionControlStore:
             existing_columns = {row["name"] for row in conn.execute("PRAGMA table_info(findings)")}
             if "category" not in existing_columns:
                 conn.execute("ALTER TABLE findings ADD COLUMN category TEXT NOT NULL DEFAULT ''")
+            # Same story for jobs.trace_context, added in schema v4 (cross-replica
+            # trace propagation -- see orchestrator/observability/tracing.py).
+            existing_job_columns = {row["name"] for row in conn.execute("PRAGMA table_info(jobs)")}
+            if "trace_context" not in existing_job_columns:
+                conn.execute("ALTER TABLE jobs ADD COLUMN trace_context TEXT")
+            # Same story for requirement_versions.{data_models,flows}_json, added
+            # in schema v5 (agents/requirement_entities/ -- impact analysis by
+            # shared data model / business flow).
+            existing_version_columns = {
+                row["name"] for row in conn.execute("PRAGMA table_info(requirement_versions)")
+            }
+            if "data_models_json" not in existing_version_columns:
+                conn.execute("ALTER TABLE requirement_versions ADD COLUMN data_models_json TEXT")
+            if "flows_json" not in existing_version_columns:
+                conn.execute("ALTER TABLE requirement_versions ADD COLUMN flows_json TEXT")
+            if "model_dependencies_json" not in existing_version_columns:
+                conn.execute(
+                    "ALTER TABLE requirement_versions ADD COLUMN model_dependencies_json TEXT"
+                )
             conn.execute("UPDATE schema_meta SET version=?", (_SCHEMA_VERSION,))
 
     # Jobs -----------------------------------------------------------------
@@ -235,6 +246,7 @@ class MissionControlStore:
         requested_by: str = "",
         priority: int = 100,
         idempotency_key: str | None = None,
+        trace_context: str | None = None,
     ) -> dict[str, Any]:
         assert_persistable(params)
         now = _iso()
@@ -243,9 +255,9 @@ class MissionControlStore:
             try:
                 conn.execute(
                     """INSERT INTO jobs
-                    (id, kind, params_json, status, priority, idempotency_key, requested_by, queued_at)
-                    VALUES (?, ?, ?, 'queued', ?, ?, ?, ?)""",
-                    (job_id, kind, _json(params), int(priority), idempotency_key, requested_by, now),
+                    (id, kind, params_json, status, priority, idempotency_key, requested_by, queued_at, trace_context)
+                    VALUES (?, ?, ?, 'queued', ?, ?, ?, ?, ?)""",
+                    (job_id, kind, _json(params), int(priority), idempotency_key, requested_by, now, trace_context),
                 )
             except sqlite3.IntegrityError:
                 if not idempotency_key:
@@ -375,6 +387,7 @@ class MissionControlStore:
             "error": redact(row["error"]),
             "cancel_requested": bool(row["cancel_requested"]),
             "attempt": row["attempt"],
+            "trace_context": row["trace_context"],
         }
 
     # Schedules ------------------------------------------------------------
@@ -422,19 +435,40 @@ class MissionControlStore:
         return [self._schedule(row, reveal_params=True) for row in rows]
 
     def advance_schedule(self, schedule_id: str, *, ran: bool) -> None:
+        """Advance next_at. Default: wall-clock now + interval (drops missed
+        ticks). With ZYVOR_SCHEDULE_CATCHUP=true, preserve cadence from the
+        previous next_at so overdue schedules catch up one interval at a time.
+        """
+        catch_up = os.environ.get("ZYVOR_SCHEDULE_CATCHUP", "false").lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
         with self.connect() as conn:
-            row = conn.execute("SELECT interval_s FROM schedules WHERE id=?", (schedule_id,)).fetchone()
+            row = conn.execute(
+                "SELECT interval_s, next_at FROM schedules WHERE id=?", (schedule_id,)
+            ).fetchone()
             if row is None:
                 return
+            interval = float(row["interval_s"])
+            now = time.time()
+            if catch_up:
+                base = float(row["next_at"] or now)
+                nxt = base + interval
+                # Leave nxt in the past when still behind so due_schedules
+                # re-fires on the next loop until cadence catches up.
+            else:
+                nxt = now + interval
             if ran:
                 conn.execute(
                     """UPDATE schedules SET next_at=?, runs=runs+1, last_at=? WHERE id=?""",
-                    (time.time() + row["interval_s"], _iso(), schedule_id),
+                    (nxt, _iso(), schedule_id),
                 )
             else:
                 conn.execute(
                     "UPDATE schedules SET next_at=? WHERE id=?",
-                    (time.time() + row["interval_s"], schedule_id),
+                    (nxt, schedule_id),
                 )
 
     def _schedule(self, row: sqlite3.Row, *, reveal_params: bool = False) -> dict[str, Any]:
@@ -631,6 +665,9 @@ class MissionControlStore:
         content: dict[str, Any],
         quality_score: float | None = None,
         quality_issues: list[dict[str, Any]] | None = None,
+        data_models: list[str] | None = None,
+        flows: list[str] | None = None,
+        model_dependencies: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """Insert a new version only if `content` differs from the current
         latest — this is the change-detection primitive impact analysis is
@@ -683,8 +720,9 @@ class MissionControlStore:
             if is_new_version:
                 conn.execute(
                     """INSERT INTO requirement_versions
-                    (requirement_id, version, content_json, content_hash, quality_score, quality_issues_json, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    (requirement_id, version, content_json, content_hash, quality_score, quality_issues_json,
+                     created_at, data_models_json, flows_json, model_dependencies_json)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
                         requirement_id,
                         version,
@@ -693,6 +731,9 @@ class MissionControlStore:
                         quality_score,
                         _json(quality_issues) if quality_issues is not None else None,
                         now,
+                        _json(data_models) if data_models is not None else None,
+                        _json(flows) if flows is not None else None,
+                        _json(model_dependencies) if model_dependencies is not None else None,
                     ),
                 )
             row = conn.execute("SELECT * FROM requirements WHERE id=?", (requirement_id,)).fetchone()
@@ -714,6 +755,11 @@ class MissionControlStore:
         result = dict(row)
         result["content"] = _loads(version["content_json"], None) if version else None
         result["quality_issues"] = _loads(version["quality_issues_json"], []) if version else []
+        result["data_models"] = _loads(version["data_models_json"], []) if version else []
+        result["flows"] = _loads(version["flows_json"], []) if version else []
+        result["model_dependencies"] = (
+            _loads(version["model_dependencies_json"], []) if version else []
+        )
         return result
 
     def list_requirements(self, limit: int = 200) -> list[dict[str, Any]]:
@@ -734,6 +780,9 @@ class MissionControlStore:
             item = dict(row)
             item["content"] = _loads(item.pop("content_json"), None)
             item["quality_issues"] = _loads(item.pop("quality_issues_json"), [])
+            item["data_models"] = _loads(item.pop("data_models_json"), [])
+            item["flows"] = _loads(item.pop("flows_json"), [])
+            item["model_dependencies"] = _loads(item.pop("model_dependencies_json"), [])
             history.append(item)
         return history
 
@@ -762,6 +811,64 @@ class MissionControlStore:
                 (requirement_id, version),
             ).fetchall()
         return [row["test_path"] for row in rows]
+
+    def requirement_impact_graph(self) -> dict[str, Any]:
+        """Groups every requirement's *latest* version by data models and flows,
+        and derives undirected `model_edges` from co-occurrence (two models on
+        the same requirement → an edge). Bounded impact analysis — not a full
+        typed dependency graph (see ROADMAP.md)."""
+        with self.connect() as conn:
+            rows = conn.execute(
+                """SELECT r.id, rv.version, rv.data_models_json, rv.flows_json,
+                          rv.model_dependencies_json
+                FROM requirements r
+                JOIN requirement_versions rv
+                  ON rv.requirement_id = r.id AND rv.version = r.latest_version"""
+            ).fetchall()
+        data_models: dict[str, list[str]] = {}
+        flows: dict[str, dict[str, Any]] = {}
+        edge_counts: dict[tuple[str, str], int] = {}
+        typed: list[dict[str, Any]] = []
+        for row in rows:
+            req_id = row["id"]
+            models = [str(m) for m in _loads(row["data_models_json"], []) if str(m).strip()]
+            for model in models:
+                data_models.setdefault(model, []).append(req_id)
+            for i, a in enumerate(models):
+                for b in models[i + 1 :]:
+                    edge = (a, b) if a <= b else (b, a)
+                    edge_counts[edge] = edge_counts.get(edge, 0) + 1
+            for dep in _loads(row["model_dependencies_json"], []):
+                if not isinstance(dep, dict):
+                    continue
+                src = str(dep.get("source") or "").strip()
+                tgt = str(dep.get("target") or "").strip()
+                if not src or not tgt:
+                    continue
+                typed.append(
+                    {
+                        "source": src,
+                        "target": tgt,
+                        "relation": str(dep.get("relation") or "depends_on"),
+                        "requirement_id": req_id,
+                    }
+                )
+            for flow in _loads(row["flows_json"], []):
+                bucket = flows.setdefault(flow, {"requirements": [], "tests": []})
+                bucket["requirements"].append(req_id)
+                bucket["tests"].extend(self.linked_tests(req_id, row["version"]))
+        for bucket in flows.values():
+            bucket["tests"] = sorted(set(bucket["tests"]))
+        model_edges = [
+            {"a": a, "b": b, "weight": w, "via_requirements": w}
+            for (a, b), w in sorted(edge_counts.items(), key=lambda kv: (-kv[1], kv[0]))
+        ]
+        return {
+            "data_models": data_models,
+            "flows": flows,
+            "model_edges": model_edges,
+            "model_dependencies": typed,
+        }
 
 
 _default_store: Any | None = None

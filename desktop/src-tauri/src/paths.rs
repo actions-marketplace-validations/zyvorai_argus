@@ -1,16 +1,5 @@
-// Copyright 2026 ZyvorAI Labs Private Limited
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+// Copyright 2026 Zyvor AI Labs · https://zyvor.dev
+// SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
 
 //! Resolve the `argus` binary and the app's data directory.
 //!
@@ -35,6 +24,10 @@ pub struct AppSettings {
     /// "use the resolve_argus_bin() cascade."
     #[serde(default, alias = "zyvor_qa_bin")]
     pub argus_bin: Option<String>,
+    /// When set, open Mission Control at this URL instead of spawning a local
+    /// `argus serve` (lab / team packaging path — Chromium lives on the remote).
+    #[serde(default)]
+    pub remote_url: Option<String>,
 }
 
 pub fn app_data_dir() -> PathBuf {
@@ -181,15 +174,18 @@ mod tests {
     fn app_settings_round_trips_through_json() {
         let settings = AppSettings {
             argus_bin: Some("/tmp/argus".to_string()),
+            remote_url: Some("http://lab:30080".to_string()),
         };
         let json = serde_json::to_string(&settings).unwrap();
         let parsed: AppSettings = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.argus_bin, settings.argus_bin);
+        assert_eq!(parsed.remote_url, settings.remote_url);
     }
 
     #[test]
     fn app_settings_default_has_no_override() {
         assert!(AppSettings::default().argus_bin.is_none());
+        assert!(AppSettings::default().remote_url.is_none());
     }
 
     #[test]
@@ -197,11 +193,16 @@ mod tests {
         // Matches exactly what desktop/public/settings.html's Save button
         // sends: invoke("set_settings", { settings: { argus_bin: value
         // || null } }) — a null clears the override, a string sets it.
-        let cleared: AppSettings = serde_json::from_str(r#"{"argus_bin": null}"#).unwrap();
+        let cleared: AppSettings = serde_json::from_str(r#"{"argus_bin": null, "remote_url": null}"#).unwrap();
         assert!(cleared.argus_bin.is_none());
+        assert!(cleared.remote_url.is_none());
 
-        let set: AppSettings = serde_json::from_str(r#"{"argus_bin": "/x/y/argus"}"#).unwrap();
+        let set: AppSettings = serde_json::from_str(
+            r#"{"argus_bin": "/x/y/argus", "remote_url": "http://host:30080"}"#,
+        )
+        .unwrap();
         assert_eq!(set.argus_bin.as_deref(), Some("/x/y/argus"));
+        assert_eq!(set.remote_url.as_deref(), Some("http://host:30080"));
     }
 
     #[test]

@@ -1,17 +1,5 @@
-# Copyright 2026 ZyvorAI Labs Private Limited
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
+# Copyright 2026 Zyvor AI Labs · https://zyvor.dev
+# SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
 """Dashboard job runner — every CLI capability, triggerable online.
 
 Kinds mirror the CLI:
@@ -42,10 +30,14 @@ VALID_KINDS = {
     "smoke", "full", "generate", "discover", "create", "regression",
     "crawl_test", "audit", "flaky", "screenshot", "compare", "ping",
     "loadtest", "tls", "flow", "route_sweep",
-    "api_contract", "auth_test", "realtime", "vitals", "ai_flow",
+    "api_contract", "api_contract_diff", "contract_verify", "auth_test", "realtime", "vitals", "ai_flow",
     "har_replay", "import_codegen",
-    "misconfig_scan", "cve_lookup", "llm_redteam", "exploit_poc", "attack_chain",
-    "host_pentest", "cloud_pentest",
+    "misconfig_scan", "cve_lookup", "sca_scan", "llm_redteam", "exploit_poc", "attack_chain",
+    "host_pentest", "cloud_pentest", "db_assert", "chaos_inject", "chaos_webhook",
+    "port_scan", "tls_cipher_scan",
+    "dast_scan", "injection_scan", "csrf_probe", "ssrf_probe",
+    "auth_attack_scan", "idor_scan",
+    "select_tests",
 } | PROBE_KINDS
 
 # Job kinds gated behind an authorized security engagement
@@ -55,12 +47,39 @@ VALID_KINDS = {
 ELEVATED_RISK_KINDS: dict[str, str] = {
     "misconfig_scan": "active_recon",
     "cve_lookup": "active_recon",
+    "sca_scan": "active_recon",
+    "contract_verify": "active_recon",
+    "db_assert": "active_recon",
     "llm_redteam": "active_recon",
+    "port_scan": "active_recon",
+    "tls_cipher_scan": "active_recon",
     "exploit_poc": "exploit",
     "attack_chain": "exploit",
     "host_pentest": "exploit",
     "cloud_pentest": "exploit",
+    "chaos_inject": "exploit",
+    "chaos_webhook": "exploit",
+    "dast_scan": "exploit",
+    "injection_scan": "exploit",
+    "csrf_probe": "exploit",
+    "ssrf_probe": "exploit",
+    "auth_attack_scan": "exploit",
+    "idor_scan": "exploit",
 }
+
+# control_kind allowlist for chaos_inject/chaos_webhook -- the "observe
+# behavior under fault" test. Deliberately narrow: running e.g. exploit_poc
+# as the "control" makes no sense and must be rejected, not silently
+# accepted.
+_CHAOS_CONTROL_KINDS = {"flow", "smoke"}
+
+# Active web-attack / DAST kinds — require ZYVOR_DAST_SCAN_ENABLED in
+# addition to an exploit-tier engagement (same fail-closed posture as
+# ZYVOR_EXPLOIT_EXECUTION_ENABLED for exploit_poc).
+DAST_KINDS = frozenset({
+    "dast_scan", "injection_scan", "csrf_probe", "ssrf_probe",
+    "auth_attack_scan", "idor_scan",
+})
 
 _lock = threading.Lock()
 _cancel = threading.Event()
@@ -202,14 +221,23 @@ def _validate(kind: str, params: dict[str, Any]) -> dict[str, Any]:
     clean: dict[str, Any] = {}
     if kind in {"full", "generate", "discover"}:
         source = str(params.get("source") or ("github" if kind == "discover" else "local"))
-        if source not in {"local", "github"}:
-            raise ValueError("source must be local or github")
+        if source not in {"local", "github", "document", "email", "transcript", "jira", "diarize"}:
+            raise ValueError(
+                "source must be local, github, document, email, transcript, jira, or diarize"
+            )
         clean["source"] = source
         spec = (params.get("spec") or "").strip()
-        if spec and source == "local":
-            spec = _safe_local_spec(spec)
+        if spec and source in {"local", "document", "email", "transcript", "jira", "diarize"}:
+            # jira JSON exports / .eml / transcripts are local paths when not live keys
+            if source != "jira" or spec.lower().endswith(".json"):
+                spec = _safe_local_spec(spec)
         clean["spec"] = spec or None
         clean["expand_coverage"] = bool(params.get("expand_coverage"))
+        if source == "jira":
+            keys = params.get("jira_issue_keys") or params.get("issue_keys") or []
+            if isinstance(keys, str):
+                keys = [k.strip() for k in keys.replace(",", " ").split() if k.strip()]
+            clean["jira_issue_keys"] = [str(k)[:64] for k in keys][:50]
     if kind == "full":
         pr = params.get("pr_number")
         clean["pr_number"] = int(pr) if pr not in (None, "", 0) else None
@@ -344,6 +372,41 @@ def _validate(kind: str, params: dict[str, Any]) -> dict[str, Any]:
         clean["workflow"] = workflow if isinstance(workflow, list) else None
         clean["auth"] = params.get("auth") if isinstance(params.get("auth"), dict) else None
         clean["path_params"] = params.get("path_params") if isinstance(params.get("path_params"), dict) else None
+    if kind == "api_contract_diff":
+        def _clean_spec_ref(value: Any, label: str) -> Any:
+            if isinstance(value, dict):
+                return value
+            if isinstance(value, str) and value.strip():
+                v = value.strip()
+                if v.startswith(("http://", "https://")) or v.startswith("git:"):
+                    return v[:1000]
+            raise ValueError(f"{label} must be an inline object, an http(s) URL, or 'git:<ref>:<path>'")
+
+        clean["spec_a"] = _clean_spec_ref(params.get("spec_a"), "spec_a")
+        clean["spec_b"] = _clean_spec_ref(params.get("spec_b"), "spec_b")
+        clean["insecure"] = bool(params.get("insecure"))
+        clean["fail_on"] = "any" if params.get("fail_on") == "any" else "breaking"
+    if kind == "contract_verify":
+        url = (params.get("url") or "").strip()
+        if not url.startswith(("http://", "https://")):
+            raise ValueError("url must start with http:// or https://")
+        clean["url"] = url[:500]
+        har = (params.get("har") or "").strip()
+        if not har and not os.environ.get("ZYVOR_HAR_PATH"):
+            raise ValueError("provide a HAR path (or set ZYVOR_HAR_PATH)")
+        clean["har"] = har[:500]
+        clean["insecure"] = bool(params.get("insecure"))
+        clean["max_endpoints"] = max(1, min(int(params.get("max_endpoints") or 60), 200))
+    if kind == "sca_scan":
+        url = (params.get("url") or "").strip()
+        checkout_path = (params.get("checkout_path") or "").strip()
+        if not url and not checkout_path:
+            raise ValueError("provide a url (black-box mode) and/or checkout_path (local-checkout mode)")
+        clean["url"] = url[:500] if url else ""
+        if clean["url"] and not clean["url"].startswith(("http://", "https://")):
+            raise ValueError("url must start with http:// or https://")
+        clean["checkout_path"] = checkout_path[:1000]
+        clean["insecure"] = bool(params.get("insecure"))
     if kind == "vitals":
         url = (params.get("url") or "").strip()
         if not url.startswith(("http://", "https://")):
@@ -431,6 +494,10 @@ def _validate(kind: str, params: dict[str, Any]) -> dict[str, Any]:
         clean["insecure"] = bool(params.get("insecure"))
         if clean["run"] and not clean["url"]:
             raise ValueError("url is required when run is enabled")
+    if kind == "select_tests":
+        clean["base"] = (params.get("base") or "HEAD~1").strip()[:80] or "HEAD~1"
+        clean["head"] = (params.get("head") or "HEAD").strip()[:80] or "HEAD"
+        clean["include_quarantined"] = bool(params.get("include_quarantined"))
     if kind == "smoke":
         clean["grep"] = (params.get("grep") or "").strip()[:200]
         clean["shard"] = (params.get("shard") or "").strip()[:20]
@@ -545,6 +612,186 @@ def _validate(kind: str, params: dict[str, Any]) -> dict[str, Any]:
             raise ValueError("target is required — an account/project identifier, e.g. 'aws-prod-123456789012'")
         clean["target"] = target[:200]
         clean["url"] = clean["target"]  # engagement target-pattern matches on this
+    if kind == "db_assert":
+        # One explicit fail-closed opt-in, not exploit_poc's three-gate
+        # stack -- this is read-only and makes no destructive claim, but it
+        # does touch live data with real credentials, which warrants more
+        # than the probe kinds get.
+        if os.environ.get("ZYVOR_DB_TESTING_ENABLED", "false").strip().lower() not in {"1", "true", "yes", "on"}:
+            raise ValueError("db_assert is disabled — set ZYVOR_DB_TESTING_ENABLED=true to enable it")
+
+        engine = (params.get("engine") or "").strip().lower()
+        if engine not in ("postgres", "mysql", "sqlite"):
+            raise ValueError("engine must be 'postgres', 'mysql', or 'sqlite'")
+        clean["engine"] = engine
+
+        from orchestrator.security.secrets import SecretReferenceError, assert_persistable, is_secret_ref
+
+        db_secret = params.get("db_secret")
+        if not is_secret_ref(db_secret):
+            raise ValueError("db_secret is required and must be a {'$secret': 'env:NAME'} reference")
+        try:
+            assert_persistable(db_secret, parent_key="db_secret")
+        except SecretReferenceError as exc:
+            raise ValueError(str(exc)) from exc
+        clean["db_secret"] = db_secret
+
+        # target is a declarative label for engagement-scope matching/audit
+        # only -- the real connection endpoint is inside db_secret's
+        # resolved DSN, which isn't available at validation time (secrets
+        # are resolved only at execution time, inside the sandbox). Same
+        # shape as cloud_pentest's `target` (an opaque account/project
+        # identifier, not a literal validated hostname).
+        target = (params.get("target") or "").strip()
+        if not target:
+            raise ValueError("target is required — a label identifying the database, e.g. 'staging-orders-db'")
+        clean["target"] = target[:200]
+        clean["url"] = clean["target"]
+
+        from orchestrator.security.sql_guard import SqlGuardError, validate_select_only
+
+        query = (params.get("query") or "").strip()
+        try:
+            clean["query"] = validate_select_only(query)
+        except SqlGuardError as exc:
+            raise ValueError(str(exc)) from exc
+
+        raw_query_params = params.get("query_params")
+        clean["query_params"] = raw_query_params[:50] if isinstance(raw_query_params, list) else []
+
+        assertion = params.get("assertion")
+        if not isinstance(assertion, dict) or assertion.get("mode") not in {"row_count", "cell_equals", "column_values"}:
+            raise ValueError("assertion must be a dict with mode in row_count|cell_equals|column_values")
+        clean["assertion"] = assertion
+        clean["timeout_s"] = max(5, min(int(params.get("timeout_s") or 30), 120))
+    if kind in ("chaos_inject", "chaos_webhook"):
+        # Two gates shared by both kinds, on top of the exploit-tier
+        # engagement check at the end of _validate(): an independent
+        # fail-closed opt-in (mirrors ZYVOR_EXPLOIT_EXECUTION_ENABLED's
+        # pattern), and a per-run attestation -- distinct from the other
+        # two because it's a confirmation THIS target consented to being
+        # broken, not operator-level policy. Even client-side-only fault
+        # injection against a target with no resilience has real impact.
+        if os.environ.get("ZYVOR_CHAOS_INJECTION_ENABLED", "false").strip().lower() not in {"1", "true", "yes", "on"}:
+            raise ValueError(f"{kind} is disabled — set ZYVOR_CHAOS_INJECTION_ENABLED=true to enable it")
+        if params.get("target_accepts_fault_injection") is not True:
+            raise ValueError(
+                "target_accepts_fault_injection must be true — an explicit, per-run "
+                "confirmation that this specific target has consented to fault injection"
+            )
+        clean["target_accepts_fault_injection"] = True
+
+        url = (params.get("url") or "").strip()
+        if not url.startswith(("http://", "https://")):
+            raise ValueError("url must start with http:// or https://")
+        clean["url"] = url[:500]
+        clean["insecure"] = bool(params.get("insecure"))
+
+    if kind == "port_scan":
+        target = (params.get("url") or params.get("host") or "").strip()
+        if not target:
+            raise ValueError("provide a URL or hostname")
+        # Accept bare host or URL — normalize to something engagement/policy can match.
+        if "://" not in target:
+            clean["url"] = f"https://{target[:240]}"
+            clean["host"] = target[:240]
+        else:
+            if not target.startswith(("http://", "https://")):
+                raise ValueError("url must start with http:// or https://")
+            clean["url"] = target[:500]
+        clean["timeout_s"] = max(0.2, min(float(params.get("timeout_s") or 1.0), 3.0))
+        raw_ports = params.get("ports")
+        if raw_ports:
+            if isinstance(raw_ports, str):
+                parts = [p.strip() for p in raw_ports.split(",") if p.strip()]
+            elif isinstance(raw_ports, list):
+                parts = raw_ports
+            else:
+                raise ValueError("ports must be a comma-separated string or list of ints")
+            clean["ports"] = [max(1, min(int(p), 65535)) for p in parts][:64]
+    if kind == "tls_cipher_scan":
+        target = (params.get("url") or params.get("host") or "").strip()
+        if not target:
+            raise ValueError("provide a URL or hostname")
+        if "://" not in target:
+            clean["url"] = f"https://{target[:240]}"
+        else:
+            if not target.startswith(("http://", "https://")):
+                raise ValueError("url must start with http:// or https://")
+            clean["url"] = target[:500]
+        if params.get("port") is not None:
+            clean["port"] = max(1, min(int(params.get("port") or 443), 65535))
+    if kind in DAST_KINDS:
+        if os.environ.get("ZYVOR_DAST_SCAN_ENABLED", "false").strip().lower() not in {"1", "true", "yes", "on"}:
+            raise ValueError(f"{kind} is disabled — set ZYVOR_DAST_SCAN_ENABLED=true to enable it")
+        url = (params.get("url") or "").strip()
+        if not url.startswith(("http://", "https://")):
+            raise ValueError("url must start with http:// or https://")
+        clean["url"] = url[:500]
+        clean["insecure"] = bool(params.get("insecure"))
+    if kind in ("chaos_inject", "chaos_webhook"):
+        control_kind = (params.get("control_kind") or "").strip()
+        if control_kind not in _CHAOS_CONTROL_KINDS:
+            raise ValueError(f"control_kind must be one of {sorted(_CHAOS_CONTROL_KINDS)}")
+        clean["control_kind"] = control_kind
+        control_params = dict(params.get("control_params") or {})
+        control_params["url"] = url
+        try:
+            clean["control_params"] = _validate(control_kind, control_params)
+        except ValueError as exc:
+            raise ValueError(f"control_params invalid for control_kind {control_kind!r}: {exc}") from exc
+
+        clean["error_rate_threshold_pct"] = max(0.0, min(float(params.get("error_rate_threshold_pct") or 10.0), 100.0))
+        clean["recovery_sla_s"] = max(1.0, min(float(params.get("recovery_sla_s") or 30.0), 300.0))
+    if kind == "chaos_inject":
+        from agents.chaos.inject_script import FAULT_TYPES
+
+        fault_type = (params.get("fault_type") or "").strip()
+        if fault_type not in FAULT_TYPES:
+            raise ValueError(f"fault_type must be one of {FAULT_TYPES}")
+        clean["fault_type"] = fault_type
+        # Hard-capped server-side, not relaxable via params -- blast radius
+        # is real even for client-side-only fault injection.
+        clean["latency_ms"] = max(0, min(int(params.get("latency_ms") or 200), 5000))
+        clean["packet_loss_pct"] = max(0, min(int(params.get("packet_loss_pct") or 10), 100))
+        clean["duration_s"] = max(5, min(int(params.get("duration_s") or 30), 120))
+    if kind == "chaos_webhook":
+        experiment_url = (params.get("experiment_webhook_url") or "").strip()
+        if not experiment_url.startswith(("http://", "https://")):
+            raise ValueError("experiment_webhook_url must start with http:// or https://")
+        clean["experiment_webhook_url"] = experiment_url[:500]
+        stop_url = (params.get("experiment_stop_webhook_url") or "").strip()
+        clean["experiment_stop_webhook_url"] = stop_url[:500] if stop_url.startswith(("http://", "https://")) else ""
+        clean["settle_s"] = max(1, min(int(params.get("settle_s") or 5), 60))
+    if kind == "dast_scan":
+        clean["max_requests"] = max(5, min(int(params.get("max_requests") or 40), 80))
+        clean["timeout_s"] = max(30, min(int(params.get("timeout_s") or 120), 300))
+        modules = params.get("modules")
+        if modules:
+            if isinstance(modules, str):
+                modules = [m.strip() for m in modules.split(",") if m.strip()]
+            allowed = {"headers", "injection", "csrf", "open_redirect", "nuclei"}
+            clean["modules"] = [m for m in modules if m in allowed] or None
+    if kind == "injection_scan":
+        clean["max_requests"] = max(5, min(int(params.get("max_requests") or 40), 80))
+    if kind == "ssrf_probe":
+        param = (params.get("param") or "").strip()
+        if param:
+            clean["param"] = param[:64]
+    if kind == "auth_attack_scan":
+        login_url = (params.get("login_url") or "").strip()
+        if login_url:
+            if not login_url.startswith(("http://", "https://")):
+                raise ValueError("login_url must start with http:// or https://")
+            clean["login_url"] = login_url[:500]
+    if kind == "idor_scan":
+        clean["delta"] = max(1, min(int(params.get("delta") or 1), 5))
+        cookie = (params.get("cookie") or "").strip()
+        if cookie:
+            clean["cookie"] = cookie[:4000]
+        authorization = (params.get("authorization") or "").strip()
+        if authorization:
+            clean["authorization"] = authorization[:2000]
     if kind in PROBE_KINDS:
         target = (params.get("url") or params.get("host") or "").strip()
         if kind == "dns_records":
@@ -563,7 +810,8 @@ def _validate(kind: str, params: dict[str, Any]) -> dict[str, Any]:
     # pass also catches URL fields added by future job kinds.
     from orchestrator.security.target_policy import TargetPolicy
     policy = TargetPolicy.from_env()
-    for key in ("url", "url_a", "url_b", "login_url", "protected", "logout_url", "ticket_url"):
+    for key in ("url", "url_a", "url_b", "login_url", "protected", "logout_url", "ticket_url",
+                "experiment_webhook_url", "experiment_stop_webhook_url"):
         value = clean.get(key)
         if isinstance(value, str) and value.startswith(("http://", "https://")):
             clean[key] = policy.validate_url(value)
@@ -572,6 +820,10 @@ def _validate(kind: str, params: dict[str, Any]) -> dict[str, Any]:
     spec_value = clean.get("spec")
     if isinstance(spec_value, str) and spec_value.startswith(("http://", "https://")):
         clean["spec"] = policy.validate_url(spec_value)
+    for key in ("spec_a", "spec_b"):
+        value = clean.get(key)
+        if isinstance(value, str) and value.startswith(("http://", "https://")):
+            clean[key] = policy.validate_url(value)
     if kind == "tls" and clean.get("host"):
         clean["host"] = policy.validate_host(clean["host"], int(clean.get("port") or 443))
     if kind == "host_pentest" and clean.get("host"):
@@ -586,21 +838,36 @@ def _validate(kind: str, params: dict[str, Any]) -> dict[str, Any]:
         ssh_policy = dataclasses.replace(policy, allowed_ports=())
         clean["host"] = ssh_policy.validate_host(clean["host"], int(clean.get("port") or 22))
         clean["url"] = clean["host"]
+    if kind == "tls_cipher_scan" and clean.get("port") and clean.get("port") not in (80, 443):
+        import dataclasses
+        from urllib.parse import urlparse as _urlparse
+
+        host = _urlparse(clean["url"]).hostname or ""
+        if host:
+            tls_policy = dataclasses.replace(policy, allowed_ports=())
+            tls_policy.validate_host(host, int(clean["port"]))
 
     if kind in ELEVATED_RISK_KINDS:
-        from orchestrator.security.engagement_policy import EngagementPolicy
+        # sca_scan's local-checkout mode reads an operator-local filesystem
+        # path, not a remote target -- no engagement makes sense when there's
+        # nothing being attacked. Black-box mode (a `url` present) still
+        # requires one, same as every other kind in this dict.
+        if kind == "sca_scan" and not clean.get("url"):
+            clean["engagement_id"] = None
+        else:
+            from orchestrator.security.engagement_policy import EngagementPolicy
 
-        clean["engagement_id"] = params.get("engagement_id")
-        # _validate() is a pure param-normalization function shared by every
-        # trigger path (CLI, dashboard, /api/v2/jobs, scheduled jobs) and has
-        # no requester identity in scope — the engagement-use audit row is
-        # logged with an empty actor; who *authorized* the engagement is
-        # already recorded on the engagement record itself.
-        EngagementPolicy.from_env().require(
-            target_url=clean.get("url", ""),
-            min_tier=ELEVATED_RISK_KINDS[kind],  # type: ignore[arg-type]
-            engagement_id=clean["engagement_id"],
-        )
+            clean["engagement_id"] = params.get("engagement_id")
+            # _validate() is a pure param-normalization function shared by every
+            # trigger path (CLI, dashboard, /api/v2/jobs, scheduled jobs) and has
+            # no requester identity in scope — the engagement-use audit row is
+            # logged with an empty actor; who *authorized* the engagement is
+            # already recorded on the engagement record itself.
+            EngagementPolicy.from_env().require(
+                target_url=clean.get("url", ""),
+                min_tier=ELEVATED_RISK_KINDS[kind],  # type: ignore[arg-type]
+                engagement_id=clean["engagement_id"],
+            )
 
     return clean
 
@@ -872,6 +1139,7 @@ def _job_full(params: dict[str, Any]) -> dict[str, Any]:
         spec=params.get("spec"),
         pr_number=params.get("pr_number"),
         expand_coverage=params.get("expand_coverage", False),
+        jira_issue_keys=params.get("jira_issue_keys"),
     )
     state["metadata"]["event"] = "dashboard-trigger"
     log_progress(f"full pipeline: fetch → parse → generate → execute → report (source={params['source']})")
@@ -901,6 +1169,7 @@ def _generate_states(params: dict[str, Any]):
         source=params["source"],
         spec=params.get("spec"),
         expand_coverage=params.get("expand_coverage", False),
+        jira_issue_keys=params.get("jira_issue_keys"),
     )
     log_progress(f"fetching specs (source={params['source']})…")
     state = fetch_requirements(state)
@@ -1728,6 +1997,79 @@ def _job_api_contract(params: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+def _spec_ref_label(ref: Any) -> str:
+    if isinstance(ref, dict):
+        return "inline"
+    text = str(ref)
+    return text if len(text) <= 60 else text[:57] + "..."
+
+
+def _job_api_contract_diff(params: dict[str, Any]) -> dict[str, Any]:
+    """Static OpenAPI breaking-change diff between two spec references
+    (inline object, http(s) URL, or 'git:<ref>:<path>'). No live target
+    interaction, so this kind is not gated by a security engagement --
+    same class as import_codegen."""
+    from agents.contract_diff.engine import BREAKING, diff_specs
+    from agents.contract_diff.loader import load_spec
+
+    spec_a_ref, spec_b_ref = params["spec_a"], params["spec_b"]
+    log_progress(f"api_contract_diff: loading spec_a ({_spec_ref_label(spec_a_ref)})")
+    spec_a = load_spec(spec_a_ref, insecure=params.get("insecure", False))
+    log_progress(f"api_contract_diff: loading spec_b ({_spec_ref_label(spec_b_ref)})")
+    spec_b = load_spec(spec_b_ref, insecure=params.get("insecure", False))
+    _check_cancel()
+
+    changes = diff_specs(spec_a, spec_b)
+    breaking = [c for c in changes if c["classification"] == BREAKING]
+    log_progress(f"api_contract_diff: {len(changes)} change(s), {len(breaking)} breaking")
+
+    fail_on = params.get("fail_on", "breaking")
+    passed = not breaking if fail_on == "breaking" else not changes
+
+    label = f"{_spec_ref_label(spec_a_ref)} vs {_spec_ref_label(spec_b_ref)}"
+    result = {
+        "spec_a": _spec_ref_label(spec_a_ref), "spec_b": _spec_ref_label(spec_b_ref),
+        "changes": changes, "breaking_count": len(breaking), "total_count": len(changes), "passed": passed,
+    }
+    _auto_findings("api_contract_diff", label, result)
+    return result
+
+
+def _job_contract_verify(params: dict[str, Any]) -> dict[str, Any]:
+    """Consumer-driven contract verification, HAR-derived -- not Pact (see
+    agents/contract_verify/engine.py's module docstring and ROADMAP.md).
+    Derives per-endpoint expectations from a recorded HAR, replays each
+    against the live provider, diffs status/content-type/top-level JSON
+    key shape. Read-only against the target -- gated at active_recon tier."""
+    import json as _json
+
+    from agents.contract_verify.engine import derive_expectations, verify_expectations
+
+    url = params["url"]
+    har_path = params["har"] or os.environ.get("ZYVOR_HAR_PATH") or ""
+    if har_path and not Path(har_path).is_absolute():
+        har_path = str(_repo_root() / har_path)
+    log_progress(f"contract_verify: reading {har_path}")
+    try:
+        with open(har_path, encoding="utf-8") as fh:
+            har = _json.load(fh)
+    except (OSError, _json.JSONDecodeError) as exc:
+        raise RuntimeError(f"could not read HAR {har_path}: {exc}") from exc
+
+    expectations = derive_expectations(har, max_endpoints=params.get("max_endpoints", 60))
+    log_progress(f"contract_verify: derived {len(expectations)} expectation(s) from the HAR, "
+                 f"replaying against {url}")
+    _check_cancel()
+    checks = verify_expectations(url, expectations, insecure=params.get("insecure", False))
+    passed = sum(1 for c in checks if c["ok"])
+    failed = len(checks) - passed
+    log_progress(f"contract_verify done: {passed}/{len(checks)} checks passed")
+
+    result = {"url": url, "har": har_path, "checks": checks, "passed": passed, "failed": failed, "total": len(checks)}
+    _auto_findings("contract_verify", url, result)
+    return result
+
+
 def _api_contract_report_bundle(url: str, mode: str, rows: list, summary: dict) -> dict[str, str]:
     try:
         from agents.reporter.exports import build_api_contract_bundle
@@ -2129,12 +2471,15 @@ def _auto_findings(kind: str, url: str, data: dict[str, Any]) -> list[dict[str, 
                 if not s.get("ok"):
                     items.append({"severity": "high", "title": f"workflow step failed: {s.get('desc')}",
                                   "detail": s.get("error", ""), "where": f"{s.get('method')} {s.get('path')}"})
-        elif kind in ("realtime", "auth_test", "har_replay"):
-            sev_map = {"auth_test": "high", "realtime": "medium", "har_replay": "medium"}
+        elif kind in ("realtime", "auth_test", "har_replay", "contract_verify"):
+            sev_map = {"auth_test": "high", "realtime": "medium", "har_replay": "medium", "contract_verify": "high"}
             for c in data.get("checks") or []:
                 if not c.get("ok"):
-                    items.append({"severity": sev_map[kind], "title": f"{kind.replace('_', ' ')}: {c.get('name')} failed",
-                                  "detail": c.get("detail", ""), "where": c.get("name", "")})
+                    item = {"severity": sev_map[kind], "title": f"{kind.replace('_', ' ')}: {c.get('name')} failed",
+                            "detail": c.get("detail", ""), "where": c.get("name", "")}
+                    if kind == "contract_verify":
+                        item["category"] = "contract-violation"
+                    items.append(item)
         elif kind == "vitals":
             for name, m in (data.get("metrics") or {}).items():
                 if m.get("grade") in ("poor", "needs-improvement"):
@@ -2162,6 +2507,24 @@ def _auto_findings(kind: str, url: str, data: dict[str, Any]) -> list[dict[str, 
             for issue in data.get("dns", {}).get("issues") or []:
                 items.append({"severity": "low", "title": f"DNS hygiene: {issue}", "detail": issue, "where": "dns",
                               "category": "dns-misconfiguration"})
+            compliance = data.get("compliance", {})
+            sec_txt = compliance.get("security_txt", {})
+            # `issues` already contains the "not found" message when `found` is
+            # False (see check_security_txt) -- iterating it covers both cases
+            # (not found at all, or found but missing a required field) without
+            # double-reporting the not-found case.
+            for issue in sec_txt.get("issues") or []:
+                items.append({"severity": "low", "title": f"security.txt: {issue}", "detail": issue,
+                              "where": "security.txt", "category": "missing-security-txt"})
+            consent = compliance.get("consent", {})
+            if consent.get("checked") and not consent.get("found"):
+                items.append({"severity": "low", "title": "no cookie-consent mechanism detected",
+                              "detail": "No known consent-management-platform marker found in initial HTML "
+                                        "(heuristic, not a legal determination)",
+                              "where": "consent", "category": "no-consent-mechanism"})
+            for issue in compliance.get("pii", {}).get("issues") or []:
+                items.append({"severity": "high", "title": f"possible PII exposure: {issue}", "detail": issue,
+                              "where": "response body", "category": "pii-exposure"})
         elif kind == "cve_lookup":
             for result in data.get("results") or []:
                 for match in result.get("matches") or []:
@@ -2172,6 +2535,68 @@ def _auto_findings(kind: str, url: str, data: dict[str, Any]) -> list[dict[str, 
                         "where": f"{result.get('product')}@{result.get('version')}",
                         "category": "outdated-dependency",
                     })
+        elif kind == "sca_scan":
+            for lib in (data.get("blackbox") or {}).get("libraries") or []:
+                if lib.get("risk") != "copyleft-or-restricted":
+                    continue
+                items.append({
+                    "severity": "medium",
+                    "title": f"{lib['product']} uses a non-permissive license: {lib.get('license')}",
+                    "detail": f"{lib['product']}@{lib.get('version', '')}: {lib.get('license')}",
+                    "where": lib["product"], "category": "license-risk",
+                })
+            for vuln in (data.get("local") or {}).get("vulnerabilities") or []:
+                items.append({
+                    "severity": vuln.get("severity", "medium"),
+                    "title": f"known vulnerability {vuln.get('id')} in {vuln.get('product')}@{vuln.get('version')}",
+                    "detail": vuln.get("detail", ""), "where": f"{vuln.get('product')}@{vuln.get('version')}",
+                    "category": "outdated-dependency",
+                })
+        elif kind == "api_contract_diff":
+            for change in data.get("changes") or []:
+                if change.get("classification") != "breaking":
+                    continue
+                items.append({
+                    "severity": "high",
+                    "title": f"breaking API change: {change.get('message')}",
+                    "detail": change.get("message", ""),
+                    "where": change.get("where", ""),
+                    "category": "breaking-api-change",
+                })
+        elif kind == "port_scan":
+            for port in data.get("open_ports") or []:
+                sev = "high" if port in (22, 23, 3389, 445, 3306, 5432, 27017, 6379) else "medium"
+                items.append({
+                    "severity": sev,
+                    "title": f"open port {port}",
+                    "detail": f"TCP connect succeeded on {data.get('host')}:{port}",
+                    "where": f"tcp/{port}",
+                    "category": "open-port",
+                })
+        elif kind == "tls_cipher_scan":
+            for issue in data.get("issues") or []:
+                sev = "high" if "weak" in issue.lower() or "legacy" in issue.lower() else "medium"
+                if "failed" in issue.lower():
+                    sev = "high"
+                items.append({
+                    "severity": sev,
+                    "title": f"TLS: {issue}",
+                    "detail": issue,
+                    "where": f"{data.get('host')}:{data.get('port')}",
+                    "category": "weak-tls",
+                })
+        elif kind in (
+            "dast_scan", "injection_scan", "csrf_probe", "ssrf_probe",
+            "auth_attack_scan", "idor_scan",
+        ):
+            for finding in data.get("findings") or []:
+                items.append({
+                    "severity": finding.get("severity", "medium"),
+                    "title": finding.get("title", kind),
+                    "detail": finding.get("detail", ""),
+                    "where": finding.get("where", ""),
+                    "category": finding.get("category", kind),
+                })
     except Exception:
         return []
     if items:
@@ -2377,8 +2802,28 @@ def _job_cve_lookup(params: dict[str, Any]) -> dict[str, Any]:
     return {"url": url, "findings": raised, **data}
 
 
+def _job_sca_scan(params: dict[str, Any]) -> dict[str, Any]:
+    """Dependency/license scanning of the TARGET app, two independent modes:
+    black-box client-side library/license fingerprinting (`url`), and/or a
+    subprocess-wrapped pip-audit/npm audit against an operator-local
+    checkout (`checkout_path`, never fetched over the network -- no target,
+    no SSRF/engagement gating for that mode specifically; see _validate())."""
+    from agents.sca.engine import scan_blackbox, scan_local_checkout
+
+    result: dict[str, Any] = {}
+    if params.get("url"):
+        log_progress(f"sca_scan: fingerprinting client-side libraries at {params['url']}")
+        result["blackbox"] = scan_blackbox(params["url"], insecure=params.get("insecure", False))
+    _check_cancel()
+    if params.get("checkout_path"):
+        log_progress(f"sca_scan: scanning local checkout {params['checkout_path']}")
+        result["local"] = scan_local_checkout(params["checkout_path"])
+    _auto_findings("sca_scan", params.get("url", ""), result)
+    return result
+
+
 def _job_llm_redteam(params: dict[str, Any]) -> dict[str, Any]:
-    """Attacker→judge loop against Zyvor Argus's own Ask Zyvor RAG agent (or an
+    """Attacker→judge loop against Zyvor Argus's own Ask Zyra RAG agent (or an
     external /v1/qa endpoint), grading resistance to a curated adversarial
     prompt battery. First job kind that can emit `critical` severity."""
     import time as _time
@@ -2882,11 +3327,518 @@ def _job_cloud_pentest(params: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _job_db_assert(params: dict[str, Any]) -> dict[str, Any]:
+    """Run one read-only, SELECT-only assertion against a database, inside
+    the Kubernetes sandbox (never in this process). Unlike exploit_poc/
+    host_pentest/cloud_pentest, the "code" is NOT LLM-generated -- it's a
+    single fixed script checked into the repo
+    (agents/db_assert/runner_script.py); the query and assertion are
+    declarative data passed via env vars, so there's no per-run code to
+    hash-and-audit -- the auditable artifact is the query + assertion text
+    themselves."""
+    import json as _json
+    import time as _time
+
+    from agents.common.models import PipelineReport
+    from agents.db_assert.engine import load_runner_script
+    from orchestrator.dashboard import findings, history
+    from orchestrator.persistence.store import get_store
+    from orchestrator.security import sandbox
+    from orchestrator.security.secrets import resolve_secret_refs
+
+    t0 = _time.time()
+    engine = params["engine"]
+    target = params["target"]
+    query = params["query"]
+    query_params = params["query_params"]
+    assertion = params["assertion"]
+
+    if not sandbox.available():
+        raise RuntimeError(
+            "exploit sandbox unavailable — set ZYVOR_SANDBOX_NAMESPACE and ensure "
+            "the cluster is reachable (see kubernetes/sandbox.yaml)"
+        )
+    image = sandbox.db_image()
+    if not image:
+        raise RuntimeError(
+            "db_assert needs a sandbox image with psycopg/pymysql installed — "
+            "set ZYVOR_SANDBOX_DB_IMAGE (see docs/enterprise-v2.md)"
+        )
+
+    resolved_secret = resolve_secret_refs(params["db_secret"])
+    env = {
+        "ZYVOR_DB_ENGINE": engine,
+        "ZYVOR_DB_SECRET": str(resolved_secret),
+        "ZYVOR_DB_QUERY": query,
+        "ZYVOR_DB_QUERY_PARAMS": _json.dumps(query_params),
+        "ZYVOR_DB_ASSERTION": _json.dumps(assertion),
+        "ZYVOR_DB_TIMEOUT_S": str(params["timeout_s"]),
+    }
+
+    get_store().audit(
+        "db_assert.run", resource_type="db_assert", resource_id=target,
+        detail={"engine": engine, "target": target, "query": query, "assertion": assertion},
+    )
+    log_progress(f"db_assert: running against {target} ({engine}, timeout {params['timeout_s']}s)…")
+    result = sandbox.run_python(
+        load_runner_script(), timeout_s=params["timeout_s"], env=env, image=image,
+    )
+    _check_cancel()
+
+    verified, reason = _parse_verified_output(result.stdout)
+    log_progress(
+        f"db_assert: {'PASSED' if verified else 'FAILED'}"
+        + (f" — {reason}" if reason else "")
+        + (" (timed out)" if result.timed_out else "")
+    )
+
+    raised: list[dict[str, Any]] = []
+    if not verified:
+        # A failed assertion is a *test* failure, not a vulnerability
+        # confirmation -- severity never defaults to critical/high the way
+        # the pentest kinds do.
+        title = f"db_assert failed on {target}: {reason or 'assertion not satisfied'}"
+        findings.add("db_assert", "medium", title, detail=reason, url=target, category="db-assertion-failed")
+        raised.append({"severity": "medium", "title": title, "detail": reason, "category": "db-assertion-failed"})
+
+    hist = PipelineReport(
+        summary=f"db_assert against {target}: {'passed' if verified else 'failed'}",
+        passed=1 if verified else 0, failed=0 if verified else 1, total=1,
+    )
+    history.append_run(hist, source="dashboard-db-assert", duration_s=_time.time() - t0)
+
+    return {
+        "target": target, "engine": engine, "query": query, "assertion": assertion,
+        "passed": verified, "reason": reason, "timed_out": result.timed_out,
+        "exit_code": result.exit_code, "stdout": (result.stdout or "")[:2000], "findings": raised,
+    }
+
+
+def _extract_error_bodies(control_kind: str, control_result: dict[str, Any]) -> list[str]:
+    """Best-effort per-case error text for verdict.py's stack-trace check.
+    Only 'flow' exposes this at the level _job_flow returns it
+    (flow_steps[].error) -- 'smoke' results don't carry per-case error text
+    at this layer, so this returns [] for it rather than guessing.
+    error_rate (the primary resilience criterion) is computed correctly for
+    both kinds from passed/failed/total regardless."""
+    if control_kind == "flow":
+        return [
+            step.get("error", "") for step in control_result.get("flow_steps", [])
+            if step.get("status") != "passed" and step.get("error")
+        ]
+    return []
+
+
+def _job_chaos_inject(params: dict[str, Any]) -> dict[str, Any]:
+    """Client-side fault injection: shapes the sandbox pod's OWN egress
+    toward the target (tc netem for latency/packet_loss, iptables for
+    connection_reset/dependency_timeout) while a concurrently-run control
+    test (flow/smoke) observes behavior. Never touches the target's own
+    infrastructure -- real target-cluster pod-kill/infra chaos is
+    explicitly out of scope (see _job_chaos_webhook for that case, and
+    ROADMAP.md for the full reasoning). Three gates, checked in
+    _validate(): exploit-tier engagement, ZYVOR_CHAOS_INJECTION_ENABLED,
+    and a per-run target_accepts_fault_injection attestation."""
+    import threading
+    import time as _time
+    from urllib.parse import urlsplit
+
+    from agents.chaos.inject_script import build_injection_script
+    from agents.chaos.probe import measure_latency_s, measure_recovery_s
+    from agents.chaos.verdict import assess_resilience
+    from agents.common.models import PipelineReport
+    from orchestrator.dashboard import findings, history
+    from orchestrator.security import sandbox
+
+    t0 = _time.time()
+    url = params["url"]
+    fault_type = params["fault_type"]
+    duration_s = params["duration_s"]
+    control_kind = params["control_kind"]
+    control_params = params["control_params"]
+    insecure = params.get("insecure", False)
+
+    if not sandbox.available():
+        raise RuntimeError(
+            "exploit sandbox unavailable — set ZYVOR_SANDBOX_NAMESPACE and ensure "
+            "the cluster is reachable (see kubernetes/sandbox.yaml)"
+        )
+    image = sandbox.chaos_image()
+    if not image:
+        raise RuntimeError(
+            "chaos_inject needs a sandbox image with iproute2/iptables installed — "
+            "set ZYVOR_SANDBOX_CHAOS_IMAGE (see docs/enterprise-v2.md)"
+        )
+
+    parsed = urlsplit(url)
+    target_host = parsed.hostname or url
+    target_port = parsed.port or (443 if parsed.scheme == "https" else 80)
+
+    log_progress(f"chaos_inject: measuring baseline latency for {url}")
+    baseline_s = measure_latency_s(url, insecure=insecure) or 1.0
+
+    script = build_injection_script(
+        fault_type=fault_type, target_host=target_host, target_port=target_port,
+        latency_ms=params["latency_ms"], packet_loss_pct=params["packet_loss_pct"], duration_s=duration_s,
+    )
+
+    sandbox_holder: dict[str, Any] = {}
+
+    def _run_fault() -> None:
+        sandbox_holder["result"] = sandbox.run_chaos(
+            script, timeout_s=duration_s + 30, egress_hosts=[target_host], image=image,
+        )
+
+    fault_thread = threading.Thread(target=_run_fault)
+    fault_thread.start()
+    _time.sleep(min(3, duration_s / 4))  # let the fault actually apply before observing
+    log_progress(f"chaos_inject: fault active ({fault_type}), running control test {control_kind}…")
+    control_result = _JOBS[control_kind](control_params)
+    _check_cancel()
+    fault_thread.join(timeout=duration_s + 60)
+    sandbox_result = sandbox_holder.get("result")
+
+    log_progress("chaos_inject: measuring recovery…")
+    recovery_s = measure_recovery_s(url, baseline_s, max_wait_s=params["recovery_sla_s"] * 2, insecure=insecure)
+
+    total = control_result.get("total", 0) or 0
+    failed = control_result.get("failed", 0) or 0
+    error_rate_pct = (100.0 * failed / total) if total else 0.0
+    error_bodies = _extract_error_bodies(control_kind, control_result)
+
+    graceful, reason = assess_resilience(
+        error_rate_pct=error_rate_pct, error_rate_threshold_pct=params["error_rate_threshold_pct"],
+        recovery_s=recovery_s, recovery_sla_s=params["recovery_sla_s"], error_bodies=error_bodies,
+    )
+    log_progress(f"chaos_inject: {'graceful degradation' if graceful else 'resilience gap'} — {reason}")
+
+    raised: list[dict[str, Any]] = []
+    if not graceful:
+        title = f"resilience gap under {fault_type} fault on {url}: {reason}"
+        severity = "high" if recovery_s is None else "medium"
+        findings.add("chaos_inject", severity, title, detail=reason, url=url, category="resilience-gap")
+        raised.append({"severity": severity, "title": title, "detail": reason, "category": "resilience-gap"})
+
+    hist = PipelineReport(
+        summary=f"chaos_inject ({fault_type}) on {url}: {'graceful' if graceful else 'resilience gap'}",
+        passed=1 if graceful else 0, failed=0 if graceful else 1, total=1,
+    )
+    history.append_run(hist, source="dashboard-chaos-inject", duration_s=_time.time() - t0)
+
+    return {
+        "url": url, "fault_type": fault_type, "graceful": graceful, "reason": reason,
+        "error_rate_pct": round(error_rate_pct, 1), "recovery_s": recovery_s, "baseline_s": round(baseline_s, 3),
+        "control_kind": control_kind, "control_result": {"passed": control_result.get("passed"), "failed": failed, "total": total},
+        "sandbox_stdout": (sandbox_result.stdout if sandbox_result else "")[:2000],
+        "network_policy_applied": sandbox_result.network_policy_applied if sandbox_result else False,
+        "findings": raised,
+    }
+
+
+def _job_chaos_webhook(params: dict[str, Any]) -> dict[str, Any]:
+    """User-triggered chaos: POSTs to the user's OWN chaos-
+    experiment webhook (Chaos Mesh/Litmus/etc.), waits `settle_s`, runs the
+    control test, optionally POSTs a stop-webhook. Zero new sandbox
+    capability -- reuses the same job-composition pattern
+    _job_import_codegen already uses calling _job_flow internally. Same
+    three gates as chaos_inject, checked in _validate()."""
+    import time as _time
+
+    import httpx
+
+    from agents.chaos.probe import measure_latency_s, measure_recovery_s
+    from agents.chaos.verdict import assess_resilience
+    from agents.common.models import PipelineReport
+    from orchestrator.dashboard import findings, history
+
+    t0 = _time.time()
+    url = params["url"]
+    experiment_url = params["experiment_webhook_url"]
+    stop_url = params.get("experiment_stop_webhook_url") or ""
+    control_kind = params["control_kind"]
+    control_params = params["control_params"]
+    insecure = params.get("insecure", False)
+
+    log_progress(f"chaos_webhook: measuring baseline latency for {url}")
+    baseline_s = measure_latency_s(url, insecure=insecure) or 1.0
+
+    log_progress(f"chaos_webhook: triggering experiment at {experiment_url}")
+    with httpx.Client(verify=not insecure, timeout=15) as client:
+        response = client.post(experiment_url)
+        response.raise_for_status()
+    _check_cancel()
+
+    log_progress(f"chaos_webhook: settling {params['settle_s']}s before observing…")
+    _time.sleep(params["settle_s"])
+    _check_cancel()
+
+    log_progress(f"chaos_webhook: running control test {control_kind}…")
+    control_result = _JOBS[control_kind](control_params)
+    _check_cancel()
+
+    if stop_url:
+        log_progress(f"chaos_webhook: stopping experiment at {stop_url}")
+        try:
+            with httpx.Client(verify=not insecure, timeout=15) as client:
+                client.post(stop_url)
+        except Exception as exc:
+            log_progress(f"chaos_webhook: stop-webhook call failed (non-fatal): {str(exc)[:200]}")
+
+    log_progress("chaos_webhook: measuring recovery…")
+    recovery_s = measure_recovery_s(url, baseline_s, max_wait_s=params["recovery_sla_s"] * 2, insecure=insecure)
+
+    total = control_result.get("total", 0) or 0
+    failed = control_result.get("failed", 0) or 0
+    error_rate_pct = (100.0 * failed / total) if total else 0.0
+    error_bodies = _extract_error_bodies(control_kind, control_result)
+
+    graceful, reason = assess_resilience(
+        error_rate_pct=error_rate_pct, error_rate_threshold_pct=params["error_rate_threshold_pct"],
+        recovery_s=recovery_s, recovery_sla_s=params["recovery_sla_s"], error_bodies=error_bodies,
+    )
+    log_progress(f"chaos_webhook: {'graceful degradation' if graceful else 'resilience gap'} — {reason}")
+
+    raised: list[dict[str, Any]] = []
+    if not graceful:
+        title = f"resilience gap under user-triggered chaos on {url}: {reason}"
+        severity = "high" if recovery_s is None else "medium"
+        findings.add("chaos_webhook", severity, title, detail=reason, url=url, category="resilience-gap")
+        raised.append({"severity": severity, "title": title, "detail": reason, "category": "resilience-gap"})
+
+    hist = PipelineReport(
+        summary=f"chaos_webhook on {url}: {'graceful' if graceful else 'resilience gap'}",
+        passed=1 if graceful else 0, failed=0 if graceful else 1, total=1,
+    )
+    history.append_run(hist, source="dashboard-chaos-webhook", duration_s=_time.time() - t0)
+
+    return {
+        "url": url, "graceful": graceful, "reason": reason,
+        "error_rate_pct": round(error_rate_pct, 1), "recovery_s": recovery_s, "baseline_s": round(baseline_s, 3),
+        "control_kind": control_kind, "control_result": {"passed": control_result.get("passed"), "failed": failed, "total": total},
+        "findings": raised,
+    }
+
+
+def _job_port_scan(params: dict[str, Any]) -> dict[str, Any]:
+    import time as _time
+
+    from agents.common.models import PipelineReport
+    from agents.probes.port_scan import run_port_scan
+    from orchestrator.dashboard import history
+
+    t0 = _time.time()
+    url = params["url"]
+    log_progress(f"port_scan: {url}")
+    data = run_port_scan(
+        url,
+        ports=params.get("ports"),
+        timeout_s=float(params.get("timeout_s") or 1.0),
+        log=log_progress,
+    )
+    _check_cancel()
+    hist = PipelineReport(
+        summary=f"port_scan {data.get('host')}: {len(data.get('open_ports') or [])} open",
+        passed=0 if data.get("open_ports") else 1,
+        failed=1 if data.get("open_ports") else 0,
+        total=1,
+    )
+    history.append_run(hist, source="dashboard-port-scan", duration_s=_time.time() - t0)
+    raised = _auto_findings("port_scan", url, data)
+    return {"url": url, "findings": raised, **data}
+
+
+def _job_tls_cipher_scan(params: dict[str, Any]) -> dict[str, Any]:
+    import time as _time
+
+    from agents.common.models import PipelineReport
+    from agents.probes.tls_cipher_scan import run_tls_cipher_scan
+    from orchestrator.dashboard import history
+
+    t0 = _time.time()
+    url = params["url"]
+    log_progress(f"tls_cipher_scan: {url}")
+    data = run_tls_cipher_scan(url, port=params.get("port"), log=log_progress)
+    _check_cancel()
+    hist = PipelineReport(
+        summary=f"tls_cipher_scan grade={data.get('grade')} issues={len(data.get('issues') or [])}",
+        passed=0 if data.get("issues") else 1,
+        failed=1 if data.get("issues") else 0,
+        total=1,
+    )
+    history.append_run(hist, source="dashboard-tls-cipher-scan", duration_s=_time.time() - t0)
+    raised = _auto_findings("tls_cipher_scan", url, data)
+    return {"url": url, "findings": raised, **data}
+
+
+def _job_dast_scan(params: dict[str, Any]) -> dict[str, Any]:
+    import time as _time
+
+    from agents.common.models import PipelineReport
+    from agents.probes.dast_scan import run_dast_scan
+    from orchestrator.dashboard import history
+
+    t0 = _time.time()
+    url = params["url"]
+    log_progress(f"dast_scan: {url}")
+    data = run_dast_scan(
+        url,
+        insecure=params.get("insecure", False),
+        max_requests=params.get("max_requests", 40),
+        timeout_s=params.get("timeout_s", 120),
+        modules=params.get("modules"),
+        log=log_progress,
+    )
+    _check_cancel()
+    total = int(data.get("total") or 0)
+    hist = PipelineReport(
+        summary=f"dast_scan: {total} finding(s)",
+        passed=0 if total else 1, failed=1 if total else 0, total=1,
+    )
+    history.append_run(hist, source="dashboard-dast-scan", duration_s=_time.time() - t0)
+    raised = _auto_findings("dast_scan", url, data)
+    return {"url": url, "findings": raised, **data}
+
+
+def _job_injection_scan(params: dict[str, Any]) -> dict[str, Any]:
+    import time as _time
+
+    from agents.common.models import PipelineReport
+    from agents.probes.injection_scan import run_injection_scan
+    from orchestrator.dashboard import history
+
+    t0 = _time.time()
+    url = params["url"]
+    data = run_injection_scan(
+        url, insecure=params.get("insecure", False),
+        max_requests=params.get("max_requests", 40), log=log_progress,
+    )
+    _check_cancel()
+    n = len(data.get("findings") or [])
+    history.append_run(
+        PipelineReport(summary=f"injection_scan: {n} finding(s)", passed=0 if n else 1, failed=1 if n else 0, total=1),
+        source="dashboard-injection-scan", duration_s=_time.time() - t0,
+    )
+    raised = _auto_findings("injection_scan", url, data)
+    return {"url": url, "findings": raised, **data}
+
+
+def _job_csrf_probe(params: dict[str, Any]) -> dict[str, Any]:
+    import time as _time
+
+    from agents.common.models import PipelineReport
+    from agents.probes.csrf_probe import run_csrf_probe
+    from orchestrator.dashboard import history
+
+    t0 = _time.time()
+    url = params["url"]
+    data = run_csrf_probe(url, insecure=params.get("insecure", False), log=log_progress)
+    _check_cancel()
+    n = len(data.get("findings") or [])
+    history.append_run(
+        PipelineReport(summary=f"csrf_probe: {n} finding(s)", passed=0 if n else 1, failed=1 if n else 0, total=1),
+        source="dashboard-csrf-probe", duration_s=_time.time() - t0,
+    )
+    raised = _auto_findings("csrf_probe", url, data)
+    return {"url": url, "findings": raised, **data}
+
+
+def _job_ssrf_probe(params: dict[str, Any]) -> dict[str, Any]:
+    import time as _time
+
+    from agents.common.models import PipelineReport
+    from agents.probes.ssrf_probe import run_ssrf_probe
+    from orchestrator.dashboard import history
+
+    t0 = _time.time()
+    url = params["url"]
+    data = run_ssrf_probe(
+        url, insecure=params.get("insecure", False),
+        param=params.get("param"), log=log_progress,
+    )
+    _check_cancel()
+    n = len(data.get("findings") or [])
+    history.append_run(
+        PipelineReport(summary=f"ssrf_probe: {n} finding(s)", passed=0 if n else 1, failed=1 if n else 0, total=1),
+        source="dashboard-ssrf-probe", duration_s=_time.time() - t0,
+    )
+    raised = _auto_findings("ssrf_probe", url, data)
+    return {"url": url, "findings": raised, **data}
+
+
+def _job_auth_attack_scan(params: dict[str, Any]) -> dict[str, Any]:
+    import time as _time
+
+    from agents.common.models import PipelineReport
+    from agents.probes.auth_attack_scan import run_auth_attack_scan
+    from orchestrator.dashboard import history
+
+    t0 = _time.time()
+    url = params["url"]
+    data = run_auth_attack_scan(
+        url, insecure=params.get("insecure", False),
+        login_url=params.get("login_url"), log=log_progress,
+    )
+    _check_cancel()
+    n = len(data.get("findings") or [])
+    history.append_run(
+        PipelineReport(summary=f"auth_attack_scan: {n} finding(s)", passed=0 if n else 1, failed=1 if n else 0, total=1),
+        source="dashboard-auth-attack-scan", duration_s=_time.time() - t0,
+    )
+    raised = _auto_findings("auth_attack_scan", url, data)
+    return {"url": url, "findings": raised, **data}
+
+
+def _job_idor_scan(params: dict[str, Any]) -> dict[str, Any]:
+    import time as _time
+
+    from agents.common.models import PipelineReport
+    from agents.probes.idor_scan import run_idor_scan
+    from orchestrator.dashboard import history
+
+    t0 = _time.time()
+    url = params["url"]
+    data = run_idor_scan(
+        url, insecure=params.get("insecure", False),
+        cookie=params.get("cookie") or "",
+        authorization=params.get("authorization") or "",
+        delta=params.get("delta", 1),
+        log=log_progress,
+    )
+    _check_cancel()
+    n = len(data.get("findings") or [])
+    history.append_run(
+        PipelineReport(summary=f"idor_scan: {n} finding(s)", passed=0 if n else 1, failed=1 if n else 0, total=1),
+        source="dashboard-idor-scan", duration_s=_time.time() - t0,
+    )
+    raised = _auto_findings("idor_scan", url, data)
+    return {"url": url, "findings": raised, **data}
+
+
+def _job_select_tests(params: dict[str, Any]) -> dict[str, Any]:
+    """Change-based test selection — static, no live target."""
+    from orchestrator.intelligence.select import select_from_git
+
+    log_progress(f"select_tests: {params.get('base')}...{params.get('head')}")
+    result = select_from_git(
+        base=params.get("base") or "HEAD~1",
+        head=params.get("head") or "HEAD",
+        include_quarantined=bool(params.get("include_quarantined")),
+    )
+    log_progress(
+        f"select_tests: {len(result['changed'])} changed, "
+        f"{len(result['selected_files'])} selected, grep={result['grep'] or '-'}"
+    )
+    return result
+
+
 _JOBS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
+    "select_tests": _job_select_tests,
     "smoke": _job_smoke,
     "flow": _job_flow,
     "route_sweep": _job_route_sweep,
     "api_contract": _job_api_contract,
+    "api_contract_diff": _job_api_contract_diff,
+    "contract_verify": _job_contract_verify,
     "vitals": _job_vitals,
     "realtime": _job_realtime,
     "auth_test": _job_auth_test,
@@ -2908,11 +3860,23 @@ _JOBS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "tls": _job_tls,
     "misconfig_scan": _job_misconfig_scan,
     "cve_lookup": _job_cve_lookup,
+    "sca_scan": _job_sca_scan,
     "llm_redteam": _job_llm_redteam,
     "exploit_poc": _job_exploit_poc,
     "attack_chain": _job_attack_chain,
     "host_pentest": _job_host_pentest,
     "cloud_pentest": _job_cloud_pentest,
+    "db_assert": _job_db_assert,
+    "chaos_inject": _job_chaos_inject,
+    "chaos_webhook": _job_chaos_webhook,
+    "port_scan": _job_port_scan,
+    "tls_cipher_scan": _job_tls_cipher_scan,
+    "dast_scan": _job_dast_scan,
+    "injection_scan": _job_injection_scan,
+    "csrf_probe": _job_csrf_probe,
+    "ssrf_probe": _job_ssrf_probe,
+    "auth_attack_scan": _job_auth_attack_scan,
+    "idor_scan": _job_idor_scan,
 }
 
 

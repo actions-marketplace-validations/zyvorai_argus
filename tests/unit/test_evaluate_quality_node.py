@@ -1,17 +1,5 @@
-# Copyright 2026 ZyvorAI Labs Private Limited
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
+# Copyright 2026 Zyvor AI Labs · https://zyvor.dev
+# SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
 """Unit tests for the evaluate_quality node — scoring, persistence, and
 first-cut change-impact detection (requirement changed -> previously-linked
 tests surfaced as potentially affected)."""
@@ -49,6 +37,8 @@ def test_evaluate_quality_scores_and_persists(tmp_path, monkeypatch):
     persisted = store.get_requirement("req-login")
     assert persisted is not None
     assert persisted["latest_version"] == 1
+    assert isinstance(persisted["data_models"], list)
+    assert isinstance(persisted["flows"], list)
 
 
 def test_evaluate_quality_surfaces_impact_when_requirement_changes(tmp_path, monkeypatch):

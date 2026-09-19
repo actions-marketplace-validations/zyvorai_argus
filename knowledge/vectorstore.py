@@ -1,19 +1,8 @@
-# Copyright 2026 ZyvorAI Labs Private Limited
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
+# Copyright 2026 Zyvor AI Labs · https://zyvor.dev
+# SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
 from __future__ import annotations
 
+import os
 from functools import lru_cache
 from typing import Any
 
@@ -25,8 +14,40 @@ from knowledge.config import get_settings
 
 
 @lru_cache(maxsize=1)
-def get_embeddings() -> OpenAIEmbeddings:
+def get_embeddings() -> Any:
+    """Dense embeddings: OpenAI-compatible by default, or local FastEmbed.
+
+    Set EMBEDDING_BACKEND=fastembed for air-gapped / Ollama labs that lack an
+    OpenAI-compatible embeddings endpoint. Uses the already-shipped `fastembed`
+    extra (no langchain-community required).
+    """
     settings = get_settings()
+    backend = (os.environ.get("EMBEDDING_BACKEND") or "").strip().lower()
+    model = settings.embedding_model or ""
+    use_fast = backend in {"fastembed", "local"} or model.startswith("BAAI/") or model.startswith(
+        "fastembed:"
+    )
+    if use_fast:
+        from langchain_core.embeddings import Embeddings
+
+        name = model.removeprefix("fastembed:") if model else "BAAI/bge-small-en-v1.5"
+        if name in {"nomic-embed-text", "text-embedding-3-small", ""}:
+            name = "BAAI/bge-small-en-v1.5"
+
+        class _FastEmbedDense(Embeddings):
+            def __init__(self, model_name: str) -> None:
+                from fastembed import TextEmbedding
+
+                self._model = TextEmbedding(model_name=model_name)
+
+            def embed_documents(self, texts: list[str]) -> list[list[float]]:
+                return [list(v) for v in self._model.embed(texts)]
+
+            def embed_query(self, text: str) -> list[float]:
+                return next(iter(self._model.query_embed(text)))
+
+        return _FastEmbedDense(name)
+
     kwargs: dict[str, Any] = {
         "model": settings.embedding_model,
         "api_key": settings.resolved_embedding_key(),

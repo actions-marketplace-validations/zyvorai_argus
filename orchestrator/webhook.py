@@ -1,17 +1,5 @@
-# Copyright 2026 ZyvorAI Labs Private Limited
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
+# Copyright 2026 Zyvor AI Labs · https://zyvor.dev
+# SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
 """FastAPI GitHub webhook receiver."""
 
 from __future__ import annotations
@@ -125,11 +113,15 @@ def create_app() -> FastAPI:
         # exempt. Covers /api/dashboard/* (checked above) and /api/v2/*
         # (which auth_middleware otherwise never authenticates — that's
         # rbac.require_scope's job — but a session cookie can drive it too).
+        # /api/login is exempt so an already-authenticated browser can
+        # re-authenticate (login page has no session CSRF yet / may not
+        # attach X-CSRF-Token); credential check is the gate there.
         mutating = request.method not in {"GET", "HEAD", "OPTIONS"}
         if (
             auth.enabled()
             and mutating
             and path.startswith("/api/")
+            and path.rstrip("/") != "/api/login"
             and "authorization" not in request.headers
             and auth.is_authenticated(request)
             and not auth.csrf_valid(request)

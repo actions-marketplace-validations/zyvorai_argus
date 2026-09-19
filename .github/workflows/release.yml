@@ -11,7 +11,7 @@ on:
         required: true
 
 env:
-  IMAGE: ghcr.io/hypersdk/zyvor-argus
+  IMAGE: ghcr.io/zyvorai/zyvor-argus
 
 jobs:
   publish-image:
@@ -31,15 +31,15 @@ jobs:
         id: ref
         run: echo "tag=${GITHUB_REF_NAME:-${{ github.event.inputs.tag }}}" >> "$GITHUB_OUTPUT"
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
 
-      - uses: docker/login-action@v3
+      - uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v7
         with:
           context: .
           file: docker/Dockerfile
@@ -64,11 +64,11 @@ jobs:
         with:
           ref: ${{ github.event.inputs.tag || github.ref }}
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: '20'
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
 
@@ -123,7 +123,7 @@ jobs:
           cp desktop/src-tauri/target/release/bundle/dmg/*.dmg \
             "dist/ZyvorArgus-${{ needs.publish-image.outputs.tag }}-macos-arm64.dmg"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: desktop-macos-dmg
           path: dist/*.dmg
@@ -137,21 +137,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: desktop-macos-dmg
           path: dist
 
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ needs.publish-image.outputs.tag }}
           generate_release_notes: true
           files: dist/*.dmg
           body: |
-            Image: `ghcr.io/hypersdk/zyvor-argus:${{ needs.publish-image.outputs.tag }}`
+            Image: `ghcr.io/zyvorai/zyvor-argus:${{ needs.publish-image.outputs.tag }}`
 
             ```bash
-            docker pull ghcr.io/hypersdk/zyvor-argus:${{ needs.publish-image.outputs.tag }}
+            docker pull ghcr.io/zyvorai/zyvor-argus:${{ needs.publish-image.outputs.tag }}
             ```
 
-            macOS desktop app: download the `.dmg` below (unsigned — right-click → Open on first launch). See [Tutorial 17](https://github.com/hypersdk/zyvor-argus/blob/main/docs/tutorials/17-desktop-app.md) and `desktop/README.md`.
+            macOS desktop app: download the `.dmg` below (unsigned — right-click → Open on first launch). See [Tutorial 17](https://github.com/zyvorai/argus/blob/main/docs/tutorials/17-desktop-app.md) and `desktop/README.md`.

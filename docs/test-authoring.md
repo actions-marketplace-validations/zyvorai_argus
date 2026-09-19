@@ -118,6 +118,26 @@ When `--spec` is omitted with `--source github`, the agent fetches all default s
 
 ---
 
+### Other requirement sources
+
+| `--source` | Spec / env | Notes |
+|------------|------------|-------|
+| `document` | Local path (`.md`, `.txt`, PDF, …) | Uses `knowledge/documents.py` extraction |
+| `email` | `.eml` path, **or** no path + `IMAP_USER`/`IMAP_PASSWORD` (Gmail app password) | Subject + plain body → markdown |
+| `transcript` | `.vtt` / `.srt` / `.txt` / `.md` | Meeting notes without live diarization |
+| `jira` | Issue key, JSON export path, and/or `jira_issue_keys` | Prefers `JIRA_OAUTH_ACCESS_TOKEN`; optional refresh via `JIRA_OAUTH_REFRESH_*`; else Basic/Bearer API token |
+| `diarize` | Audio (`.wav`/`.mp3`/…) or speaker-tagged `.vtt` | Live audio needs `ZYVOR_DIARIZE_CMD` or `ZYVOR_DIARIZE_API_URL` |
+
+```bash
+argus test run --source email --spec inbox/req.eml
+argus test run --source jira --spec PROJ-42
+argus test run --source diarize --spec meetings/standup.vtt
+```
+
+After `evaluate_quality`, Mission Control **Requirements → Impact** shows shared models/flows, co-occurrence edges, and typed dependencies (`Order → Payment`).
+
+---
+
 ### Write tests from plain English
 
 ```bash
@@ -126,6 +146,29 @@ argus test create "Verify homepage loads and shows product suite"
 
 # Generate and run immediately
 argus test create "Check /vm page shows migration content" --execute
+```
+
+---
+
+### Test intelligence
+
+Flake taxonomy, file-backed quarantine (`reports/quarantine.json`), change-based
+selection, and failure studio. No store-schema change; `select_tests` needs no
+engagement. Related code: `orchestrator/intelligence/`, CLI in `orchestrator/cli.py`.
+
+```bash
+argus intel health [--limit 20]
+argus intel select [--base HEAD~1] [--head HEAD] [--include-quarantined]
+argus intel quarantine-add "checkout pays" --reason "INC-1234 price flake" \
+  --file playwright/checkout.spec.ts [--owner qa] [--ttl-hours 72]
+argus intel quarantine-list
+argus intel quarantine-release 'playwright/checkout.spec.ts::checkout-pays'
+
+# Same surfaces over HTTP / Mission Control jobs:
+# GET  /api/v2/intel/health
+# POST /api/v2/intel/select   {"base":"HEAD~1","head":"HEAD"}
+# POST /api/v2/jobs           {"kind":"select_tests","params":{"base":"main","head":"HEAD"}}
+# GET  /api/v2/intel/studio/{job_id}
 ```
 
 ---
@@ -181,6 +224,9 @@ npm run report:pdf        # Regenerate PDF from reports/qa-summary.html
 | Post report to PR | Add `--pr-number 42` to any `run` command |
 | Natural language test | `argus test create "your description"` |
 | NL test + run | `argus test create "description" --execute` |
+| Suite health + quarantine overlay | `argus intel health` |
+| Change-based test select | `argus intel select --base HEAD~1 --head HEAD` |
+| Quarantine a flake | `argus intel quarantine-add "title" --reason "…"` |
 | Visual regression | `argus vision regression` |
 | Webhook server | `argus serve` |
 | Write tests by hand | Add files to `tests/manual/*.spec.ts` |

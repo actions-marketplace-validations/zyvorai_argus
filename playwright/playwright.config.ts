@@ -1,16 +1,5 @@
-// Copyright 2026 ZyvorAI Labs Private Limited
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+// Copyright 2026 Zyvor AI Labs · https://zyvor.dev
+// SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
 
 import { defineConfig, devices } from '@playwright/test';
 import path from 'path';
@@ -131,7 +120,18 @@ export default defineConfig({
       : undefined,
   reporter: [
     ['list'],
-    ['html', { outputFolder: path.join(repoRoot, 'reports'), open: 'never' }],
+    // outputFolder must NOT be `reports/` itself -- Playwright's HTML
+    // reporter unconditionally clears its entire outputFolder before
+    // writing (even when zero tests run, e.g. a bad testDir filter), and
+    // `reports/` is also where Mission Control's live SQLite state
+    // (mission-control.db), job/run history, and artifacts live. Every
+    // `smoke`/`flow` job (including a chaos_inject/chaos_webhook control
+    // test) invokes this config, so pointing the reporter at the bare
+    // `reports/` root silently destroyed the live database mid-process on
+    // every test run -- crashing the durable-jobs worker thread the next
+    // time it touched a now-missing table. Scoped to its own subdirectory
+    // instead, so only Playwright's own report output gets cleared.
+    ['html', { outputFolder: path.join(repoRoot, 'reports', 'playwright-report'), open: 'never' }],
     ['json', { outputFile: path.join(repoRoot, 'reports', 'results.json') }],
   ],
   use: sharedUse,

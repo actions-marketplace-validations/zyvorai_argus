@@ -1,6 +1,5 @@
-// Copyright (c) 2026 ZyvorAI Labs Private Limited. All rights reserved.
-// Proprietary software — see LICENSE in the repository root.
-// https://zyvor.dev · info@zyvor.dev
+// Copyright 2026 Zyvor AI Labs · https://zyvor.dev
+// SPDX-License-Identifier: Apache-2.0
 
 import type {ReactNode} from 'react';
 import {
@@ -219,8 +218,8 @@ export default function EdgeComputing(): ReactNode {
                 </div>
                 <h3 className={css.econTitle}>Public cloud meter</h3>
                 <p className={css.econDesc}>
-                  Multi-AZ networking, managed premiums, and egress turn steady 24/7 VMs into runaway OpEx. Customers
-                  have removed {cloudEconomics.customerFirstYearCloudSavings} in first-year cloud spend after
+                  Multi-AZ networking, managed premiums, and egress turn steady 24/7 VMs into runaway OpEx. Users
+                  have removed {cloudEconomics.userFirstYearCloudSavings} in first-year cloud spend after
                   consolidating fragmented tooling.
                 </p>
               </div>

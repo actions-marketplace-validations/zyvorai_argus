@@ -1,6 +1,5 @@
-// Copyright (c) 2026 ZyvorAI Labs Private Limited. All rights reserved.
-// Proprietary software — see LICENSE in the repository root.
-// https://zyvor.dev · info@zyvor.dev
+// Copyright 2026 Zyvor AI Labs · https://zyvor.dev
+// SPDX-License-Identifier: Apache-2.0
 
 import {useState, type FormEvent, type ReactNode} from 'react';
 import Link from '@docusaurus/Link';
@@ -30,7 +29,7 @@ const chapters = [
   {
     number: '01',
     title: 'The True Cost of VMware',
-    desc: 'Licensing escalation, support costs, and vendor lock-in quantified. Broadcom acquisition impact analysis with real numbers from enterprise customers.',
+    desc: 'Licensing escalation, support costs, and vendor lock-in quantified. Broadcom acquisition impact analysis with real numbers from enterprise users.',
     accent: '#ef4444',
   },
   {

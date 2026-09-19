@@ -1,6 +1,5 @@
-// Copyright (c) 2026 ZyvorAI Labs Private Limited. All rights reserved.
-// Proprietary software — see LICENSE in the repository root.
-// https://zyvor.dev · info@zyvor.dev
+// Copyright 2026 Zyvor AI Labs · https://zyvor.dev
+// SPDX-License-Identifier: Apache-2.0
 
 import {useState, type ReactNode, type CSSProperties} from 'react';
 import {ProductPage, PageContent} from '../components/shared';
@@ -237,8 +236,8 @@ export default function Pay(): ReactNode {
                 currency="INR"
                 productName={product || 'Payment'}
                 description={desc || product || 'Zyvor'}
-                customerName={name}
-                customerEmail={email}
+                userName={name}
+                userEmail={email}
                 onSuccess={handleSuccess}
                 style={{
                   width: '100%',

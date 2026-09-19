@@ -1,17 +1,5 @@
-# Copyright 2026 ZyvorAI Labs Private Limited
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
+# Copyright 2026 Zyvor AI Labs · https://zyvor.dev
+# SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
 """CLI entry point for Zyvor Argus."""
 
 from __future__ import annotations
@@ -31,24 +19,74 @@ from typing import Optional
 import typer
 from dotenv import load_dotenv
 
+from orchestrator import cli_ui as ui
+from orchestrator.cli_theme import ArgusTyperGroup, apply_theme
 from orchestrator.graph import get_compiled_graph
 from orchestrator.paths import repo_root as _shared_repo_root
 from orchestrator.state import PipelineState
 
 app = typer.Typer(
     name="argus",
-    help="Zyvor Argus — autonomous testing, security, and monitoring for the Zyvor platform",
     no_args_is_help=True,
+    rich_markup_mode="rich",
+    cls=ArgusTyperGroup,
+    epilog="Run [bold cyan]argus COMMAND --help[/] for details on a command.",
 )
 
-test_app = typer.Typer(name="test", help="Playwright test generation & execution", no_args_is_help=True)
-flow_app = typer.Typer(name="flow", help="Multi-step user journeys", no_args_is_help=True)
-vision_app = typer.Typer(name="vision", help="Visual regression & route screenshots", no_args_is_help=True)
-api_app = typer.Typer(name="api", help="API/AI/auth contract & workflow testing", no_args_is_help=True)
-watch_app = typer.Typer(name="watch", help="Recurring monitoring: vitals & site audits", no_args_is_help=True)
-guard_app = typer.Typer(name="guard", help="Security testing & pentesting", no_args_is_help=True)
-redteam_app = typer.Typer(name="redteam", help="LLM/application red-teaming", no_args_is_help=True)
-ask_app = typer.Typer(name="ask", help="Ask Zyvor knowledge base ingestion & evaluation", no_args_is_help=True)
+test_app = typer.Typer(
+    name="test",
+    help="Playwright test generation & execution",
+    no_args_is_help=True,
+    rich_markup_mode="rich",
+)
+flow_app = typer.Typer(
+    name="flow",
+    help="Multi-step user journeys",
+    no_args_is_help=True,
+    rich_markup_mode="rich",
+)
+vision_app = typer.Typer(
+    name="vision",
+    help="Visual regression & route screenshots",
+    no_args_is_help=True,
+    rich_markup_mode="rich",
+)
+api_app = typer.Typer(
+    name="api",
+    help="API/AI/auth contract & workflow testing",
+    no_args_is_help=True,
+    rich_markup_mode="rich",
+)
+watch_app = typer.Typer(
+    name="watch",
+    help="Recurring monitoring: vitals & site audits",
+    no_args_is_help=True,
+    rich_markup_mode="rich",
+)
+guard_app = typer.Typer(
+    name="guard",
+    help="Security testing & pentesting",
+    no_args_is_help=True,
+    rich_markup_mode="rich",
+)
+redteam_app = typer.Typer(
+    name="redteam",
+    help="LLM/application red-teaming",
+    no_args_is_help=True,
+    rich_markup_mode="rich",
+)
+ask_app = typer.Typer(
+    name="ask",
+    help="Ask Zyra knowledge base ingestion & evaluation",
+    no_args_is_help=True,
+    rich_markup_mode="rich",
+)
+intel_app = typer.Typer(
+    name="intel",
+    help="Test intelligence: health, quarantine, change-based select",
+    no_args_is_help=True,
+    rich_markup_mode="rich",
+)
 
 app.add_typer(test_app, name="test")
 app.add_typer(flow_app, name="flow")
@@ -58,11 +96,18 @@ app.add_typer(watch_app, name="watch")
 app.add_typer(guard_app, name="guard")
 app.add_typer(redteam_app, name="redteam")
 app.add_typer(ask_app, name="ask")
+app.add_typer(intel_app, name="intel")
 
 
 def _load_env() -> None:
     repo_root = _shared_repo_root()
     load_dotenv(repo_root / ".env")
+
+
+def _work(label: str, fn, *args, **kwargs):
+    """Run fn under the progress spinner, then return its result."""
+    with ui.spin(label):
+        return fn(*args, **kwargs)
 
 
 def _findings_severity_summary(items: list[dict]) -> tuple[dict[str, int], Optional[str]]:
@@ -92,16 +137,25 @@ def _initial_state(
     spec: Optional[str] = None,
     pr_number: Optional[int] = None,
     expand_coverage: bool = False,
+    jira_issue_keys: Optional[list[str]] = None,
 ) -> PipelineState:
     spec_paths: list[str] = []
     document_paths: list[str] = []
+    keys = list(jira_issue_keys or [])
     if spec:
         if source == "github":
             from github_integration.client import normalize_github_spec_path
 
             spec_paths = [normalize_github_spec_path(spec)]
-        elif source == "document":
+        elif source in {"document", "email", "transcript", "diarize"}:
             document_paths = [str(Path(spec).resolve())]
+        elif source == "jira":
+            resolved = str(Path(spec).resolve())
+            if resolved.lower().endswith(".json"):
+                document_paths = [resolved]
+            else:
+                # Treat as issue key when not a JSON export path
+                keys.append(spec)
         else:
             spec_paths = [str(Path(spec).resolve())]
 
@@ -111,6 +165,7 @@ def _initial_state(
         "source": source,
         "spec_paths": spec_paths,
         "document_paths": document_paths,
+        "jira_issue_keys": keys,
         "spec_contents": [],
         "requirements": [],
         "generated_tests": [],
@@ -122,7 +177,7 @@ def _initial_state(
         "pr_number": pr_number,
         "repo_full_name": os.environ.get("ZYVOR_PRODUCT_REPO"),
         "error": None,
-        "metadata": {"explicit_spec": bool(spec)},
+        "metadata": {"explicit_spec": bool(spec), "jira_issue_keys": keys},
         "expand_coverage": expand_coverage or env_expand,
         "coverage_inventory": [],
         "coverage_gaps": [],
@@ -143,7 +198,10 @@ def _run_discovery_subgraph(state: PipelineState) -> PipelineState:
 
 @test_app.command()
 def run(
-    source: str = typer.Option("local", help="Requirement source: local | github | document"),
+    source: str = typer.Option(
+        "local",
+        help="Requirement source: local | github | document | email | transcript | jira | diarize",
+    ),
     spec: Optional[str] = typer.Option(
         None,
         help="Spec path: local file, GitHub repo path (docs/specs/foo.md), or GitHub blob URL",
@@ -166,17 +224,17 @@ def run(
         pr_number=pr_number,
         expand_coverage=expand_coverage,
     )
-    result = graph.invoke(state)
+    result = _work("Running QA pipeline", graph.invoke, state)
 
     from agents.reporter.summary import write_ci_summary
 
     base_url = os.environ.get("ZYVOR_BASE_URL")
 
     if result.get("error"):
-        typer.echo(f"Pipeline error: {result['error']}", err=True)
+        ui.echo(f"Pipeline error: {result['error']}", err=True)
         tr = result.get("test_results")
         if tr:
-            typer.echo(
+            ui.echo(
                 f"Partial results: {tr.passed} passed, {tr.failed} failed",
                 err=True,
             )
@@ -196,23 +254,23 @@ def run(
     test_results = result.get("test_results")
     metadata = result.get("metadata", {})
     if metadata.get("coverage_inventory_size") is not None:
-        typer.echo(
+        ui.echo(
             f"Coverage: {metadata.get('coverage_inventory_size', 0)} candidates, "
             f"{metadata.get('coverage_gaps_remaining', 0)} gaps, "
             f"{metadata.get('coverage_tests_generated', 0)} new tests"
         )
     if test_results:
-        typer.echo(
+        ui.echo(
             f"Results: {test_results.passed} passed, "
             f"{test_results.failed} failed, {test_results.total} total"
         )
         generated = result.get("generated_tests", [])
         if generated:
-            typer.echo(f"Generated tests: {len(generated)} file(s)")
+            ui.echo(f"Generated tests: {len(generated)} file(s)")
     if result.get("report_path"):
-        typer.echo(f"Report: {result['report_path']}")
+        ui.echo(f"Report: {result['report_path']}")
     if result.get("pdf_report_path"):
-        typer.echo(f"PDF report: {result['pdf_report_path']}")
+        ui.echo(f"PDF report: {result['pdf_report_path']}")
 
     failed = bool(test_results and test_results.failed > 0)
     write_ci_summary(
@@ -256,14 +314,18 @@ def test(
         extra.append(f"grep={grep}")
     if shard:
         extra.append(f"shard={shard}")
-    typer.echo(f"Running Playwright tests against {base_url}" + (f" ({', '.join(extra)})" if extra else "") + "...")
-    results = run_playwright(
+    label = f"Running Playwright against {base_url}"
+    if extra:
+        label += f" ({', '.join(extra)})"
+    results = _work(
+        label,
+        run_playwright,
         test_dirs=test_dirs,
         base_url=base_url,
         grep=grep,
         shard=shard,
     )
-    typer.echo(f"Results: {results.passed} passed, {results.failed} failed")
+    ui.echo(f"Results: {results.passed} passed, {results.failed} failed")
 
     failed = results.failed > 0
     write_ci_summary(
@@ -288,7 +350,10 @@ def generate(
         None,
         help="Spec path: local file, GitHub repo path (docs/specs/foo.md), or GitHub blob URL",
     ),
-    source: str = typer.Option("local", help="Requirement source: local | github | document"),
+    source: str = typer.Option(
+        "local",
+        help="Requirement source: local | github | document | email | transcript | jira | diarize",
+    ),
     expand_coverage: bool = typer.Option(
         False,
         "--expand-coverage",
@@ -301,53 +366,66 @@ def generate(
     subgraph_nodes = ["fetch", "discover", "gap_analyze", "parse", "evaluate_quality", "generate"]
     state = _initial_state(source=source, spec=spec, expand_coverage=expand_coverage)
 
-    for node in subgraph_nodes:
-        if node == "fetch":
-            from orchestrator.nodes.fetch import fetch_requirements
+    labels = {
+        "fetch": "Fetching requirements",
+        "discover": "Discovering coverage",
+        "gap_analyze": "Analyzing gaps",
+        "parse": "Parsing requirements",
+        "evaluate_quality": "Evaluating quality",
+        "generate": "Generating tests",
+    }
+    with ui.spin("Generating tests") as tick:
+        for node in subgraph_nodes:
+            tick(labels[node])
+            if node == "fetch":
+                from orchestrator.nodes.fetch import fetch_requirements
 
-            state = fetch_requirements(state)
-        elif node == "discover":
-            from orchestrator.nodes.discover import discover_coverage
+                state = fetch_requirements(state)
+            elif node == "discover":
+                from orchestrator.nodes.discover import discover_coverage
 
-            state = discover_coverage(state)
-        elif node == "gap_analyze":
-            from orchestrator.nodes.gap_analyze import gap_analyze
+                state = discover_coverage(state)
+            elif node == "gap_analyze":
+                from orchestrator.nodes.gap_analyze import gap_analyze
 
-            state = gap_analyze(state)
-        elif node == "parse":
-            from orchestrator.nodes.parse import parse_requirements
+                state = gap_analyze(state)
+            elif node == "parse":
+                from orchestrator.nodes.parse import parse_requirements
 
-            state = parse_requirements(state)
-        elif node == "evaluate_quality":
-            from orchestrator.nodes.evaluate_quality import evaluate_quality
+                state = parse_requirements(state)
+            elif node == "evaluate_quality":
+                from orchestrator.nodes.evaluate_quality import evaluate_quality
 
-            state = evaluate_quality(state)
-        elif node == "generate":
-            from orchestrator.nodes.generate import generate_tests
+                state = evaluate_quality(state)
+            elif node == "generate":
+                from orchestrator.nodes.generate import generate_tests
 
-            state = generate_tests(state)
+                state = generate_tests(state)
 
     if state.get("error"):
-        typer.echo(f"Error: {state['error']}", err=True)
+        ui.echo(f"Error: {state['error']}", err=True)
         raise typer.Exit(code=1)
 
     metadata = state.get("metadata", {})
     if metadata.get("coverage_inventory_size") is not None:
-        typer.echo(
+        ui.echo(
             f"Coverage: {metadata.get('coverage_inventory_size', 0)} candidates, "
             f"{metadata.get('coverage_gaps_remaining', 0)} gaps, "
             f"{metadata.get('coverage_tests_generated', 0)} new tests"
         )
 
     generated = state.get("generated_tests", [])
-    typer.echo(f"Generated {len(generated)} test file(s):")
+    ui.echo(f"Generated {len(generated)} test file(s):")
     for path in generated:
-        typer.echo(f"  {path}")
+        ui.echo(f"  {path}")
 
 
 @test_app.command()
 def discover(
-    source: str = typer.Option("github", help="Requirement source: local | github | document"),
+    source: str = typer.Option(
+        "github",
+        help="Requirement source: local | github | document | email | transcript | jira | diarize",
+    ),
     spec: Optional[str] = typer.Option(
         None,
         help="Optional spec path when fetching from GitHub",
@@ -362,26 +440,26 @@ def discover(
         pr_number=pr_number,
         expand_coverage=True,
     )
-    state = _run_discovery_subgraph(state)
+    state = _work("Discovering coverage", _run_discovery_subgraph, state)
 
     if state.get("error"):
-        typer.echo(f"Error: {state['error']}", err=True)
+        ui.echo(f"Error: {state['error']}", err=True)
         raise typer.Exit(code=1)
 
     inventory = state.get("coverage_inventory", [])
     gaps = state.get("coverage_gaps", [])
     metadata = state.get("metadata", {})
 
-    typer.echo(f"Discovered {len(inventory)} coverage candidate(s)")
-    typer.echo(f"Uncovered gaps: {len(gaps)}")
+    ui.echo(f"Discovered {len(inventory)} coverage candidate(s)")
+    ui.echo(f"Uncovered gaps: {len(gaps)}")
     if metadata.get("discovered_paths"):
-        typer.echo(f"Files scanned: {len(metadata['discovered_paths'])}")
+        ui.echo(f"Files scanned: {len(metadata['discovered_paths'])}")
 
     for gap in gaps[:20]:
         candidate = gap.candidate
-        typer.echo(f"  [gap] {candidate.kind} {candidate.path} — {candidate.title}")
+        ui.echo(f"  [gap] {candidate.kind} {candidate.path} — {candidate.title}")
     if len(gaps) > 20:
-        typer.echo(f"  ... and {len(gaps) - 20} more")
+        ui.echo(f"  ... and {len(gaps) - 20} more")
 
 
 @test_app.command()
@@ -397,30 +475,29 @@ def create(
     repo_root = _shared_repo_root()
     output_dir = repo_root / "tests" / "generated"
 
-    typer.echo(f"Creating test from: {description}")
     try:
-        parsed = create_from_natural_language(description)
+        parsed = _work("Parsing description", create_from_natural_language, description)
     except Exception as exc:
-        typer.echo(f"NL parsing failed: {exc}", err=True)
+        ui.echo(f"NL parsing failed: {exc}", err=True)
         raise typer.Exit(code=1)
 
     save_requirements(parsed, repo_root / "tests" / "fixtures" / "requirements.json")
 
     try:
-        generated = create_and_generate(description, str(output_dir))
+        generated = _work("Generating tests", create_and_generate, description, str(output_dir))
     except Exception as exc:
-        typer.echo(f"Test generation failed: {exc}", err=True)
+        ui.echo(f"Test generation failed: {exc}", err=True)
         raise typer.Exit(code=1)
 
-    typer.echo(f"Generated {len(generated)} test file(s):")
+    ui.echo(f"Generated {len(generated)} test file(s):")
     for path in generated:
-        typer.echo(f"  {path}")
+        ui.echo(f"  {path}")
 
     if execute:
         from agents.execution.runner import run_playwright
 
-        results = run_playwright(test_dirs=[str(output_dir)])
-        typer.echo(f"Results: {results.passed} passed, {results.failed} failed")
+        results = _work("Running generated tests", run_playwright, test_dirs=[str(output_dir)])
+        ui.echo(f"Results: {results.passed} passed, {results.failed} failed")
         if results.failed > 0:
             raise typer.Exit(code=1)
 
@@ -443,15 +520,16 @@ def regression(
     repo_root = _shared_repo_root()
     test_dirs = [str(repo_root / "tests" / "manual")]
 
-    typer.echo("Running tests with screenshot capture...")
-    test_results = run_playwright(test_dirs=test_dirs, base_url=base_url)
+    test_results = _work(
+        "Capturing screenshots", run_playwright, test_dirs=test_dirs, base_url=base_url
+    )
 
-    state = regression_check({"test_results": test_results})
+    state = _work("Comparing baselines", regression_check, {"test_results": test_results})
     diffs = state.get("regression_diffs", [])
 
     for d in diffs:
         status = "✓" if d.status == "pass" else "✗"
-        typer.echo(f"  {status} {d.file}: {d.diff_percent}% — {d.message or d.status}")
+        ui.echo(f"  {status} {d.file}: {d.diff_percent}% — {d.message or d.status}")
 
     failed = [d for d in diffs if d.status == "fail"]
     if failed:
@@ -495,11 +573,11 @@ def flow(
     elif describe:
         text, steps_mode = describe, False
     else:
-        typer.echo("Provide --describe or --steps", err=True)
+        ui.echo("Provide --describe or --steps", err=True)
         raise typer.Exit(code=2)
 
     parsed, mode = parse_flow(text, steps_mode=steps_mode)
-    typer.echo(f"{len(parsed)} step(s) parsed ({mode})")
+    ui.echo(f"{len(parsed)} step(s) parsed ({mode})")
     repo_root = _shared_repo_root()
     out_dir = repo_root / "reports" / "artifacts" / "flows" / "cli"
     session_path = ""
@@ -509,17 +587,17 @@ def flow(
             cand = repo_root / "reports" / "artifacts" / "auth" / session
         session_path = str(cand) if cand.exists() else ""
         if session_path:
-            typer.echo(f"reusing session {session_path}")
+            ui.echo(f"reusing session {session_path}")
     result = run_flow(
         url, parsed, out_dir, record=video, trace=trace, insecure=insecure,
         username=username or "", password=password or "", session=session_path,
-        on_line=lambda line: typer.echo(line),
+        on_line=lambda line: ui.echo(line),
     )
-    typer.echo(f"Result: {result['passed']}/{result['total']} steps passed")
+    ui.echo(f"Result: {result['passed']}/{result['total']} steps passed")
     if result.get("video"):
-        typer.echo(f"Journey video: {out_dir / result['video']}")
+        ui.echo(f"Journey video: {out_dir / result['video']}")
     if result.get("trace"):
-        typer.echo(f"Trace (open at trace.playwright.dev): {out_dir / result['trace']}")
+        ui.echo(f"Trace (open at trace.playwright.dev): {out_dir / result['trace']}")
     failed = result["failed"] > 0
     write_ci_summary(
         command="flow",
@@ -557,7 +635,7 @@ def route_sweep(
     from agents.reporter.summary import write_ci_summary
 
     vps = ["desktop"] + (["mobile"] if mobile else [])
-    result = _job_route_sweep({
+    result = _work("Sweeping routes", _job_route_sweep, {
         "url": url,
         "routes": [r.strip() for r in routes.split(",") if r.strip()],
         "viewports": vps,
@@ -566,9 +644,9 @@ def route_sweep(
         "auto": auto,
         "max_pages": max_pages,
     })
-    typer.echo(f"Swept {result['routes']} route(s): {result['fail_count']} changed, {result['new_baselines']} new baseline(s)")
+    ui.echo(f"Swept {result['routes']} route(s): {result['fail_count']} changed, {result['new_baselines']} new baseline(s)")
     for row in result["sweep_rows"]:
-        typer.echo(f"  {row['status']:8} {row['route']} [{row['viewport']}] {row['diff']}%")
+        ui.echo(f"  {row['status']:8} {row['route']} [{row['viewport']}] {row['diff']}%")
 
     fail_count = result["fail_count"]
     total_rows = len(result["sweep_rows"])
@@ -617,7 +695,7 @@ def api_test(
     if api_key:
         auth["apiKey"] = api_key
 
-    result = _job_api_contract({
+    result = _work("Checking API contracts", _job_api_contract, {
         "url": base,
         "mode": "workflow" if wf else "spec",
         "spec": spec_val,
@@ -628,13 +706,13 @@ def api_test(
         "max_endpoints": 200,
         "path_params": None,
     })
-    typer.echo(f"API contract ({result['mode']}): {result['passed']}/{result['total']} passed")
+    ui.echo(f"API contract ({result['mode']}): {result['passed']}/{result['total']} passed")
     rows = result.get("endpoints") if result["mode"] == "spec" else result.get("steps")
     for r in rows or []:
         mark = "✓" if r.get("ok") else "✗"
         label = f"{r.get('method')} {r.get('path')}" if result["mode"] == "spec" else r.get("desc")
         detail = " | ".join(r.get("schema_errors") or []) or r.get("error") or r.get("note") or ""
-        typer.echo(f"  {mark} {label} → {r.get('status')} {detail}")
+        ui.echo(f"  {mark} {label} → {r.get('status')} {detail}")
     if result["failed"] > 0:
         raise typer.Exit(code=1)
 
@@ -651,12 +729,12 @@ def ai_test(
     _load_env()
     from orchestrator.dashboard.jobs import _job_ai_flow
 
-    result = _job_ai_flow({"url": url, "goal": goal, "session": session or "",
+    result = _work("Running AI agent", _job_ai_flow, {"url": url, "goal": goal, "session": session or "",
                            "max_steps": max_steps, "insecure": insecure})
-    typer.echo(f"\nAI agent ({result.get('mode')}): {'✅ ' + result['summary'] if result['success'] else '⚠ ' + result['summary']}")
+    ui.echo(f"\nAI agent ({result.get('mode')}): {'✅ ' + result['summary'] if result['success'] else '⚠ ' + result['summary']}")
     for s in result.get("ai_steps", []):
         mark = "✓" if s["status"] == "passed" else "✗"
-        typer.echo(f"  {mark} step {s['n']}: {s['desc']}")
+        ui.echo(f"  {mark} step {s['n']}: {s['desc']}")
     if not result["success"]:
         raise typer.Exit(code=1)
 
@@ -677,17 +755,17 @@ def auth_test(
     _load_env()
     from orchestrator.dashboard.jobs import _job_auth_test
 
-    result = _job_auth_test({
+    result = _work("Checking auth and session", _job_auth_test, {
         "url": base, "login_url": login_url or "", "api_login": api_login or "",
         "protected": protected, "logout_url": logout_url or "",
         "username": username or "", "password": password or "",
         "save_session": save_session, "insecure": insecure,
     })
-    typer.echo(f"Auth & session: {result['passed']}/{result['total']} checks passed")
+    ui.echo(f"Auth & session: {result['passed']}/{result['total']} checks passed")
     for c in result.get("checks") or []:
-        typer.echo(f"  {'✓' if c['ok'] else '✗'} {c['name']} — {c.get('detail', '')}")
+        ui.echo(f"  {'✓' if c['ok'] else '✗'} {c['name']} — {c.get('detail', '')}")
     if result.get("session_name"):
-        typer.echo(f"Session saved as: {result['session_name']} (reuse with flow/realtime --session)")
+        ui.echo(f"Session saved as: {result['session_name']} (reuse with flow/realtime --session)")
     if result["failed"] > 0:
         raise typer.Exit(code=1)
 
@@ -706,7 +784,7 @@ def har_replay(
     _load_env()
     from orchestrator.dashboard.jobs import _job_har_replay
 
-    result = _job_har_replay({
+    result = _work("Replaying HAR", _job_har_replay, {
         "url": url,
         "mode": mode,
         "har": har or os.environ.get("ZYVOR_HAR_PATH") or "",
@@ -715,11 +793,11 @@ def har_replay(
         "not_found_ok": not_found_ok,
         "insecure": insecure,
     })
-    typer.echo(f"HAR {result.get('mode')}: {result['passed']}/{result['total']} checks")
+    ui.echo(f"HAR {result.get('mode')}: {result['passed']}/{result['total']} checks")
     if result.get("har"):
-        typer.echo(f"HAR file: {result['har']}")
+        ui.echo(f"HAR file: {result['har']}")
     for c in result.get("checks") or []:
-        typer.echo(f"  {'✓' if c['ok'] else '✗'} {c['name']} — {c.get('detail', '')}")
+        ui.echo(f"  {'✓' if c['ok'] else '✗'} {c['name']} — {c.get('detail', '')}")
     if result["failed"] > 0:
         raise typer.Exit(code=1)
 
@@ -739,16 +817,16 @@ def import_codegen_cmd(
         script = Path(source).read_text(encoding="utf-8")
     from orchestrator.dashboard.jobs import _job_import_codegen
 
-    result = _job_import_codegen({
+    result = _work("Importing codegen", _job_import_codegen, {
         "script": script,
         "url": url or "",
         "run": run,
         "insecure": insecure,
     })
     steps = result.get("imported_steps") or result.get("steps") or []
-    typer.echo(f"Imported {len(steps)} step(s)")
+    ui.echo(f"Imported {len(steps)} step(s)")
     for i, s in enumerate(steps, 1):
-        typer.echo(f"  {i}. {s.get('action')} {s.get('target') or s.get('assertion') or s.get('value') or ''}")
+        ui.echo(f"  {i}. {s.get('action')} {s.get('target') or s.get('assertion') or s.get('value') or ''}")
     if run and result.get("failed", 0) > 0:
         raise typer.Exit(code=1)
 
@@ -773,16 +851,16 @@ def realtime(
     _load_env()
     from orchestrator.dashboard.jobs import _job_realtime
 
-    result = _job_realtime({
+    result = _work("Checking live data", _job_realtime, {
         "url": url, "ws": ws or "", "sse": sse or "", "ticket_url": ticket_url or "",
         "ticket_query": "ticket", "token": token or "", "token_query": token_query,
         "ws_subprotocol": ws_subprotocol, "subprotocol_jwt": subprotocol_jwt,
         "expect_messages": expect_messages, "window_ms": window_ms,
         "live_selector": live_selector or "", "session": session or "", "insecure": insecure,
     })
-    typer.echo(f"Live data: {result['passed']}/{result['total']} checks passed")
+    ui.echo(f"Live data: {result['passed']}/{result['total']} checks passed")
     for c in result.get("checks") or []:
-        typer.echo(f"  {'✓' if c['ok'] else '✗'} {c['name']} — {c.get('detail', '')}")
+        ui.echo(f"  {'✓' if c['ok'] else '✗'} {c['name']} — {c.get('detail', '')}")
     if result["failed"] > 0:
         raise typer.Exit(code=1)
 
@@ -801,11 +879,15 @@ def vitals(
     from orchestrator.dashboard.jobs import _job_vitals
     from agents.reporter.summary import write_ci_summary
 
-    result = _job_vitals({"url": url, "device": device or "", "throttle": throttle or "", "insecure": insecure})
-    typer.echo(f"Overall: {result.get('overall', '?').upper()}")
+    result = _work(
+        "Measuring vitals",
+        _job_vitals,
+        {"url": url, "device": device or "", "throttle": throttle or "", "insecure": insecure},
+    )
+    ui.echo(f"Overall: {result.get('overall', '?').upper()}")
     metrics = result.get("metrics") or {}
     for name, m in metrics.items():
-        typer.echo(f"  {name:5} {str(m.get('value')):>8}  [{m.get('grade')}]")
+        ui.echo(f"  {name:5} {str(m.get('value')):>8}  [{m.get('grade')}]")
 
     total = len(metrics)
     passed = sum(1 for m in metrics.values() if m.get("grade") == "good")
@@ -841,12 +923,12 @@ def audit(
     from agents.reporter.summary import write_ci_summary
     from orchestrator.dashboard.jobs import _job_audit
 
-    result = _job_audit({
+    result = _work("Auditing site", _job_audit, {
         "url": url, "max_pages": max_pages,
         "checks": [c.strip() for c in (checks or "").split(",") if c.strip()] or None,
         "insecure": insecure,
     })
-    typer.echo(f"Grade: {result['grade']} ({result['score']}/100) — {result['fail_count']} failing, {result['warn_count']} warning checks")
+    ui.echo(f"Grade: {result['grade']} ({result['score']}/100) — {result['fail_count']} failing, {result['warn_count']} warning checks")
     counts, max_severity = _findings_severity_summary(result.get("findings") or [])
     gate = _exceeds_fail_on(max_severity, fail_on)
     write_ci_summary(
@@ -879,9 +961,9 @@ def misconfig_scan(
     params = _validate("misconfig_scan", {
         "url": url, "max_paths": max_paths, "insecure": insecure, "engagement_id": engagement_id,
     })
-    result = _job_misconfig_scan(params)
+    result = _work("Scanning misconfiguration", _job_misconfig_scan, params)
     exposed = len(result["paths"]["exposed"])
-    typer.echo(f"Grade: {result['grade']} ({result['score']}/100) — {exposed} exposed path(s), headers {result['headers']['status']}")
+    ui.echo(f"Grade: {result['grade']} ({result['score']}/100) — {exposed} exposed path(s), headers {result['headers']['status']}")
     counts, max_severity = _findings_severity_summary(result.get("findings") or [])
     gate = _exceeds_fail_on(max_severity, fail_on)
     write_ci_summary(
@@ -910,10 +992,10 @@ def cve_lookup(
     from orchestrator.dashboard.jobs import _job_cve_lookup, _validate
 
     params = _validate("cve_lookup", {"url": url, "insecure": insecure, "engagement_id": engagement_id})
-    result = _job_cve_lookup(params)
-    typer.echo(f"{result['total_matches']} known advisory match(es) across {len(result['identified'])} identified component(s)")
+    result = _work("Looking up CVEs", _job_cve_lookup, params)
+    ui.echo(f"{result['total_matches']} known advisory match(es) across {len(result['identified'])} identified component(s)")
     for item in result["identified"]:
-        typer.echo(f"  {item['product']} {item['version']} (via {item['source']})")
+        ui.echo(f"  {item['product']} {item['version']} (via {item['source']})")
     counts, max_severity = _findings_severity_summary(result.get("findings") or [])
     gate = _exceeds_fail_on(max_severity, fail_on)
     write_ci_summary(
@@ -937,7 +1019,7 @@ def llm_redteam(
     max_prompts: int = typer.Option(40, help="Max battery prompts to run (capped at 40)"),
     fail_on: str = typer.Option("high", "--fail-on", help="Exit 1 if any finding is at/above this severity"),
 ) -> None:
-    """Attacker/judge red-team loop against Ask Zyvor — jailbreak, prompt-injection, system-prompt-leak resistance."""
+    """Attacker/judge red-team loop against Ask Zyra — jailbreak, prompt-injection, system-prompt-leak resistance."""
     _load_env()
     t0 = time.time()
     started_at = datetime.fromtimestamp(t0, tz=timezone.utc).isoformat()
@@ -949,8 +1031,8 @@ def llm_redteam(
         "categories": [c.strip() for c in (categories or "").split(",") if c.strip()] or None,
         "max_prompts": max_prompts, "engagement_id": engagement_id,
     })
-    result = _job_llm_redteam(params)
-    typer.echo(f"Grade: {result['grade']} ({result['score']}/100) — {result['resisted']}/{result['total']} prompts resisted")
+    result = _work("Red-teaming model", _job_llm_redteam, params)
+    ui.echo(f"Grade: {result['grade']} ({result['score']}/100) — {result['resisted']}/{result['total']} prompts resisted")
     counts, max_severity = _findings_severity_summary(result.get("findings") or [])
     gate = _exceeds_fail_on(max_severity, fail_on)
     write_ci_summary(
@@ -988,9 +1070,9 @@ def exploit_poc(
         "url": url, "finding_description": finding_description,
         "timeout_s": timeout_s, "engagement_id": engagement_id,
     })
-    result = _job_exploit_poc(params)
-    typer.echo(f"{'VERIFIED' if result['verified'] else 'not verified'}" + (f" — {result['reason']}" if result['reason'] else ""))
-    typer.echo(f"PoC: {result['poc_path']} (sha256 {result['code_sha256'][:12]}…)")
+    result = _work("Running exploit proof", _job_exploit_poc, params)
+    ui.echo(f"{'VERIFIED' if result['verified'] else 'not verified'}" + (f" — {result['reason']}" if result['reason'] else ""))
+    ui.echo(f"PoC: {result['poc_path']} (sha256 {result['code_sha256'][:12]}…)")
     counts, max_severity = _findings_severity_summary(result.get("findings") or [])
     gate = _exceeds_fail_on(max_severity, fail_on)
     write_ci_summary(
@@ -1029,10 +1111,10 @@ def attack_chain(
         "url": url, "objective": objective, "max_steps": max_steps,
         "timeout_s": timeout_s, "engagement_id": engagement_id,
     })
-    result = _job_attack_chain(params)
-    typer.echo(f"{result['confirmed_count']}/{len(result['steps'])} step(s) confirmed ({result['stop_reason']})")
+    result = _work("Walking attack chain", _job_attack_chain, params)
+    ui.echo(f"{result['confirmed_count']}/{len(result['steps'])} step(s) confirmed ({result['stop_reason']})")
     for step in result["steps"]:
-        typer.echo(f"  step {step['step']}: {'✓' if step['verified'] else '✗'} {step['description']}")
+        ui.echo(f"  step {step['step']}: {'✓' if step['verified'] else '✗'} {step['description']}")
     counts, max_severity = _findings_severity_summary(result.get("findings") or [])
     gate = _exceeds_fail_on(max_severity, fail_on)
     write_ci_summary(
@@ -1075,16 +1157,16 @@ def host_pentest(
     try:
         creds = _json.loads(creds_json)
     except _json.JSONDecodeError as exc:
-        typer.echo(f"--creds is not valid JSON: {exc}", err=True)
+        ui.echo(f"--creds is not valid JSON: {exc}", err=True)
         raise typer.Exit(code=2) from exc
 
     params = _validate("host_pentest", {
         "host": host, "port": port, "finding_description": finding_description,
         "creds": creds, "timeout_s": timeout_s, "engagement_id": engagement_id,
     })
-    result = _job_host_pentest(params)
-    typer.echo(f"{'VERIFIED' if result['verified'] else 'not verified'}" + (f" — {result['reason']}" if result['reason'] else ""))
-    typer.echo(f"PoC: {result['poc_path']} (sha256 {result['code_sha256'][:12]}…)")
+    result = _work("Pentesting host", _job_host_pentest, params)
+    ui.echo(f"{'VERIFIED' if result['verified'] else 'not verified'}" + (f" — {result['reason']}" if result['reason'] else ""))
+    ui.echo(f"PoC: {result['poc_path']} (sha256 {result['code_sha256'][:12]}…)")
     counts, max_severity = _findings_severity_summary(result.get("findings") or [])
     gate = _exceeds_fail_on(max_severity, fail_on)
     write_ci_summary(
@@ -1126,16 +1208,16 @@ def cloud_pentest(
     try:
         creds = _json.loads(creds_json)
     except _json.JSONDecodeError as exc:
-        typer.echo(f"--creds is not valid JSON: {exc}", err=True)
+        ui.echo(f"--creds is not valid JSON: {exc}", err=True)
         raise typer.Exit(code=2) from exc
 
     params = _validate("cloud_pentest", {
         "provider": provider, "target": target, "finding_description": finding_description,
         "creds": creds, "timeout_s": timeout_s, "engagement_id": engagement_id,
     })
-    result = _job_cloud_pentest(params)
-    typer.echo(f"{'VERIFIED' if result['verified'] else 'not verified'}" + (f" — {result['reason']}" if result['reason'] else ""))
-    typer.echo(f"PoC: {result['poc_path']} (sha256 {result['code_sha256'][:12]}…)")
+    result = _work("Pentesting cloud", _job_cloud_pentest, params)
+    ui.echo(f"{'VERIFIED' if result['verified'] else 'not verified'}" + (f" — {result['reason']}" if result['reason'] else ""))
+    ui.echo(f"PoC: {result['poc_path']} (sha256 {result['code_sha256'][:12]}…)")
     counts, max_severity = _findings_severity_summary(result.get("findings") or [])
     gate = _exceeds_fail_on(max_severity, fail_on)
     write_ci_summary(
@@ -1147,6 +1229,212 @@ def cloud_pentest(
     )
     if gate:
         raise typer.Exit(code=1)
+
+
+def _run_guard_finding_job(
+    *,
+    kind: str,
+    command: str,
+    target_url: str,
+    params: dict,
+    job_fn,
+    fail_on: str,
+    summary_extra: Optional[dict] = None,
+) -> None:
+    """Shared CLI path for engagement-gated finding jobs (DAST / port / TLS)."""
+    t0 = time.time()
+    started_at = datetime.fromtimestamp(t0, tz=timezone.utc).isoformat()
+    from agents.reporter.summary import write_ci_summary
+    from orchestrator.dashboard.jobs import _validate
+
+    clean = _validate(kind, params)
+    result = _work(f"Running {command}", job_fn, clean)
+    findings = result.get("findings") or []
+    ui.echo(f"{command}: {len(findings)} finding(s)")
+    for item in findings[:20]:
+        ui.echo(f"  [{item.get('severity', '?')}] {item.get('title', '')}")
+    counts, max_severity = _findings_severity_summary(findings)
+    gate = _exceeds_fail_on(max_severity, fail_on)
+    write_ci_summary(
+        command=command, target_url=target_url,
+        passed=0 if findings else 1, failed=1 if findings else 0, total=1,
+        exit_code=1 if gate else 0, started_at=started_at, duration_s=time.time() - t0,
+        findings_by_severity=counts, max_severity=max_severity,
+        extra=summary_extra or {},
+    )
+    if gate:
+        raise typer.Exit(code=1)
+
+
+@guard_app.command(name="port-scan")
+def port_scan_cmd(
+    url: str = typer.Argument(..., help="URL or hostname to scan"),
+    engagement_id: str = typer.Option(..., "--engagement-id"),
+    ports: Optional[str] = typer.Option(None, "--ports", help="Comma-separated ports (max 64; default: common services)"),
+    timeout_s: float = typer.Option(1.0, "--timeout", help="Per-port TCP connect timeout (capped at 3s)"),
+    fail_on: str = typer.Option("high", "--fail-on"),
+) -> None:
+    """Bounded TCP connect scan of common service ports (active_recon engagement)."""
+    _load_env()
+    from orchestrator.dashboard.jobs import _job_port_scan
+
+    params: dict = {"url": url, "engagement_id": engagement_id, "timeout_s": timeout_s}
+    if ports:
+        params["ports"] = ports
+    _run_guard_finding_job(
+        kind="port_scan", command="port-scan", target_url=url,
+        params=params, job_fn=_job_port_scan, fail_on=fail_on,
+    )
+
+
+@guard_app.command(name="tls-cipher-scan")
+def tls_cipher_scan_cmd(
+    url: str = typer.Argument(..., help="URL or hostname"),
+    engagement_id: str = typer.Option(..., "--engagement-id"),
+    port: Optional[int] = typer.Option(None, "--port"),
+    fail_on: str = typer.Option("high", "--fail-on"),
+) -> None:
+    """Grade TLS protocols and negotiated cipher strength (active_recon)."""
+    _load_env()
+    from orchestrator.dashboard.jobs import _job_tls_cipher_scan
+
+    params: dict = {"url": url, "engagement_id": engagement_id}
+    if port is not None:
+        params["port"] = port
+    _run_guard_finding_job(
+        kind="tls_cipher_scan", command="tls-cipher-scan", target_url=url,
+        params=params, job_fn=_job_tls_cipher_scan, fail_on=fail_on,
+    )
+
+
+@guard_app.command(name="dast-scan")
+def dast_scan_cmd(
+    url: str = typer.Argument(...),
+    engagement_id: str = typer.Option(..., "--engagement-id", help="Must be an exploit-tier engagement"),
+    insecure: bool = typer.Option(False, help="Accept self-signed TLS"),
+    max_requests: int = typer.Option(40, help="Cap injection probe requests"),
+    timeout_s: int = typer.Option(120, "--timeout", help="Nuclei wall-clock timeout if configured"),
+    modules: Optional[str] = typer.Option(None, help="Comma list: headers,injection,csrf,open_redirect,nuclei"),
+    fail_on: str = typer.Option("high", "--fail-on"),
+) -> None:
+    """Bounded DAST: headers, injection, CSRF, open-redirect (+ optional nuclei). Requires ZYVOR_DAST_SCAN_ENABLED."""
+    _load_env()
+    from orchestrator.dashboard.jobs import _job_dast_scan
+
+    params: dict = {
+        "url": url, "engagement_id": engagement_id, "insecure": insecure,
+        "max_requests": max_requests, "timeout_s": timeout_s,
+    }
+    if modules:
+        params["modules"] = modules
+    _run_guard_finding_job(
+        kind="dast_scan", command="dast-scan", target_url=url,
+        params=params, job_fn=_job_dast_scan, fail_on=fail_on,
+    )
+
+
+@guard_app.command(name="injection-scan")
+def injection_scan_cmd(
+    url: str = typer.Argument(...),
+    engagement_id: str = typer.Option(..., "--engagement-id"),
+    insecure: bool = typer.Option(False),
+    max_requests: int = typer.Option(40),
+    fail_on: str = typer.Option("high", "--fail-on"),
+) -> None:
+    """Systematic SQLi / reflected-XSS / path-traversal probes. Requires ZYVOR_DAST_SCAN_ENABLED."""
+    _load_env()
+    from orchestrator.dashboard.jobs import _job_injection_scan
+
+    _run_guard_finding_job(
+        kind="injection_scan", command="injection-scan", target_url=url,
+        params={"url": url, "engagement_id": engagement_id, "insecure": insecure, "max_requests": max_requests},
+        job_fn=_job_injection_scan, fail_on=fail_on,
+    )
+
+
+@guard_app.command(name="csrf-probe")
+def csrf_probe_cmd(
+    url: str = typer.Argument(...),
+    engagement_id: str = typer.Option(..., "--engagement-id"),
+    insecure: bool = typer.Option(False),
+    fail_on: str = typer.Option("high", "--fail-on"),
+) -> None:
+    """Target CSRF posture: forms without tokens, cookies without SameSite. Requires ZYVOR_DAST_SCAN_ENABLED."""
+    _load_env()
+    from orchestrator.dashboard.jobs import _job_csrf_probe
+
+    _run_guard_finding_job(
+        kind="csrf_probe", command="csrf-probe", target_url=url,
+        params={"url": url, "engagement_id": engagement_id, "insecure": insecure},
+        job_fn=_job_csrf_probe, fail_on=fail_on,
+    )
+
+
+@guard_app.command(name="ssrf-probe")
+def ssrf_probe_cmd(
+    url: str = typer.Argument(...),
+    engagement_id: str = typer.Option(..., "--engagement-id"),
+    param: Optional[str] = typer.Option(None, help="Force a specific query param name"),
+    insecure: bool = typer.Option(False),
+    fail_on: str = typer.Option("high", "--fail-on"),
+) -> None:
+    """Probe target for SSRF via URL-like query params. Requires ZYVOR_DAST_SCAN_ENABLED."""
+    _load_env()
+    from orchestrator.dashboard.jobs import _job_ssrf_probe
+
+    params: dict = {"url": url, "engagement_id": engagement_id, "insecure": insecure}
+    if param:
+        params["param"] = param
+    _run_guard_finding_job(
+        kind="ssrf_probe", command="ssrf-probe", target_url=url,
+        params=params, job_fn=_job_ssrf_probe, fail_on=fail_on,
+    )
+
+
+@guard_app.command(name="auth-attack-scan")
+def auth_attack_scan_cmd(
+    url: str = typer.Argument(...),
+    engagement_id: str = typer.Option(..., "--engagement-id"),
+    login_url: Optional[str] = typer.Option(None, "--login-url"),
+    insecure: bool = typer.Option(False),
+    fail_on: str = typer.Option("high", "--fail-on"),
+) -> None:
+    """Auth hygiene: JWT alg=none, cookie flags, login enum hints (no brute force). Requires ZYVOR_DAST_SCAN_ENABLED."""
+    _load_env()
+    from orchestrator.dashboard.jobs import _job_auth_attack_scan
+
+    params: dict = {"url": url, "engagement_id": engagement_id, "insecure": insecure}
+    if login_url:
+        params["login_url"] = login_url
+    _run_guard_finding_job(
+        kind="auth_attack_scan", command="auth-attack-scan", target_url=url,
+        params=params, job_fn=_job_auth_attack_scan, fail_on=fail_on,
+    )
+
+
+@guard_app.command(name="idor-scan")
+def idor_scan_cmd(
+    url: str = typer.Argument(..., help="Authorized object URL containing a numeric id"),
+    engagement_id: str = typer.Option(..., "--engagement-id"),
+    cookie: Optional[str] = typer.Option(None, help="Optional Cookie header for an authenticated session"),
+    authorization: Optional[str] = typer.Option(None, help="Optional Authorization header"),
+    delta: int = typer.Option(1, help="Adjacent id offset (±N, capped at 5)"),
+    insecure: bool = typer.Option(False),
+    fail_on: str = typer.Option("high", "--fail-on"),
+) -> None:
+    """Bounded IDOR probe on adjacent numeric IDs. Requires ZYVOR_DAST_SCAN_ENABLED."""
+    _load_env()
+    from orchestrator.dashboard.jobs import _job_idor_scan
+
+    params: dict = {"url": url, "engagement_id": engagement_id, "insecure": insecure, "delta": delta}
+    if cookie:
+        params["cookie"] = cookie
+    if authorization:
+        params["authorization"] = authorization
+    _run_guard_finding_job(
+        kind="idor_scan", command="idor-scan", target_url=url,
+        params=params, job_fn=_job_idor_scan, fail_on=fail_on,
+    )
 
 
 @guard_app.command(name="pr-gate")
@@ -1170,7 +1458,7 @@ def pr_gate(
 
     path = Path(summary_path)
     if not path.is_file():
-        typer.echo(f"no summary file at {summary_path} — run a scan command first", err=True)
+        ui.echo(f"no summary file at {summary_path} — run a scan command first", err=True)
         raise typer.Exit(code=2)
     summary = _json.loads(path.read_text(encoding="utf-8"))
     max_severity = summary.get("max_severity")
@@ -1179,7 +1467,7 @@ def pr_gate(
 
     client = GitHubClient()
     if not client.available:
-        typer.echo("GitHub token required. Set GITHUB_TOKEN or run `gh auth login`.", err=True)
+        ui.echo("GitHub token required. Set GITHUB_TOKEN or run `gh auth login`.", err=True)
         raise typer.Exit(code=2)
 
     body_lines = [
@@ -1194,13 +1482,13 @@ def pr_gate(
             repo, sha, state="failure", context="argus/security",
             description=f"blocked: {max_severity} finding(s) present",
         )
-        typer.echo(f"PR #{pr_number} blocked — {max_severity} finding(s) at/above {fail_on}")
+        ui.echo(f"PR #{pr_number} blocked — {max_severity} finding(s) at/above {fail_on}")
         raise typer.Exit(code=1)
 
     body_lines.append("✅ No findings at/above the configured threshold.")
     client.create_pr_review(repo, pr_number, event="APPROVE", body="\n\n".join(body_lines))
     client.set_commit_status(repo, sha, state="success", context="argus/security", description="no blocking findings")
-    typer.echo(f"PR #{pr_number} passed the security gate")
+    ui.echo(f"PR #{pr_number} passed the security gate")
 
 
 @app.command()
@@ -1221,10 +1509,22 @@ def serve(
     ssl_keyfile: Optional[str] = None
     if tls or tls_cert or tls_key:
         ssl_certfile, ssl_keyfile = _ensure_tls_cert(tls_cert, tls_key, host)
-        typer.echo(f"Starting HTTPS server on {host}:{port} (cert: {ssl_certfile})")
+        ui.echo(f"Starting HTTPS server on {host}:{port} (cert: {ssl_certfile})")
     else:
-        typer.echo(f"Starting webhook server on {host}:{port}")
+        ui.echo(f"Starting webhook server on {host}:{port}")
     uvicorn.run(create_app(), host=host, port=port, ssl_certfile=ssl_certfile, ssl_keyfile=ssl_keyfile)
+
+
+@app.command("version")
+def version_cmd() -> None:
+    """Print the installed Argus version."""
+    from importlib.metadata import PackageNotFoundError, version
+
+    try:
+        installed = version("zyvor-argus")
+    except PackageNotFoundError:
+        installed = "unknown"
+    ui.echo(f"argus {installed}")
 
 
 def _ensure_tls_cert(cert: Optional[str], key: Optional[str], host: str) -> tuple[str, str]:
@@ -1239,7 +1539,7 @@ def _ensure_tls_cert(cert: Optional[str], key: Optional[str], host: str) -> tupl
     if cert_path.exists() and key_path.exists():
         return str(cert_path), str(key_path)
     cn = host if host not in ("0.0.0.0", "") else "localhost"  # nosec B104 - cert CN choice, not a bind address
-    typer.echo(f"Generating self-signed TLS certificate (CN={cn}) → {cert_dir}")
+    ui.echo(f"Generating self-signed TLS certificate (CN={cn}) → {cert_dir}")
     subprocess.run(
         [
             "openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes",
@@ -1268,7 +1568,7 @@ def knowledge_ingest(
     try:
         from scripts.knowledge_ingest import main as ingest_main
     except ImportError as exc:
-        typer.echo(
+        ui.echo(
             "Knowledge extras missing. Install with: pip install -e '.[knowledge]'",
             err=True,
         )
@@ -1294,7 +1594,7 @@ def knowledge_ingest(
     if product:
         argv.extend(["--product", product])
     sys.argv = ["knowledge-ingest", *argv]
-    ingest_main()
+    _work("Ingesting documents", ingest_main)
 
 
 @ask_app.command("evaluate")
@@ -1326,7 +1626,89 @@ def knowledge_evaluate(
     if api_key:
         argv.extend(["--api-key", api_key])
     sys.argv = ["knowledge-evaluate", *argv]
-    evaluate_main()
+    _work("Evaluating answers", evaluate_main)
+
+
+@intel_app.command("health")
+def intel_health(limit: int = typer.Option(20, help="Max tests to list")) -> None:
+    """Print suite health with flake verdicts and quarantine overlay."""
+    _load_env()
+    from orchestrator.intelligence.health import summarize
+
+    data = _work("Summarizing test health", summarize, limit=limit)
+    ui.echo(
+        f"healthy={data['counts']['healthy']} failing={data['counts']['failing']} "
+        f"flaky={data['counts']['flaky']} quarantined={data['quarantined_count']}"
+    )
+    for rec in data["tests"]:
+        flag = "Q" if rec.get("quarantined") else " "
+        ui.echo(
+            f"[{flag}] {rec.get('verdict'):8} fail={rec.get('fails')}/{rec.get('runs')}  {rec.get('title')}"
+        )
+
+
+@intel_app.command("select")
+def intel_select(
+    base: str = typer.Option("HEAD~1", help="git base ref"),
+    head: str = typer.Option("HEAD", help="git head ref"),
+    include_quarantined: bool = typer.Option(False, help="Keep quarantined tests in the selection"),
+) -> None:
+    """Print the tests worth running for a git range (change-based selection)."""
+    _load_env()
+    from orchestrator.intelligence.select import select_from_git
+
+    result = _work(
+        "Selecting tests",
+        select_from_git,
+        base=base,
+        head=head,
+        include_quarantined=include_quarantined,
+    )
+    ui.echo(f"changed={len(result['changed'])} selected={len(result['selected_files'])} "
+               f"grep={result['grep'] or '-'} run={result['run_recommended']}")
+    for path in result["selected_files"]:
+        ui.echo(f"  {path}  ({result['reasons'].get(path, '')})")
+    if result["fallback"]:
+        ui.echo(f"fallback: {result['fallback']}")
+
+
+@intel_app.command("quarantine-add")
+def intel_quarantine_add(
+    title: str = typer.Argument(..., help="Test title"),
+    reason: str = typer.Option(..., "--reason", help="Why it is quarantined"),
+    file: str = typer.Option("", help="Optional spec path"),
+    owner: str = typer.Option("", help="Optional owner"),
+    ttl_hours: int = typer.Option(72, help="Hours until expiry"),
+) -> None:
+    _load_env()
+    from orchestrator.intelligence.quarantine import add
+
+    entry = add(title, file=file, reason=reason, owner=owner, ttl_hours=ttl_hours)
+    ui.echo(f"quarantined {entry['key']} until {entry['expires_at']}")
+
+
+@intel_app.command("quarantine-list")
+def intel_quarantine_list() -> None:
+    _load_env()
+    from orchestrator.intelligence.quarantine import listing
+
+    rows = listing()
+    if not rows:
+        ui.echo("no active quarantine")
+        return
+    for row in rows:
+        ui.echo(f"{row['key']}  {row['title']}  expires={row['expires_at']}  {row['reason']}")
+
+
+@intel_app.command("quarantine-release")
+def intel_quarantine_release(key: str = typer.Argument(..., help="Quarantine key")) -> None:
+    _load_env()
+    from orchestrator.intelligence.quarantine import release
+
+    if not release(key):
+        ui.echo(f"not found: {key}", err=True)
+        raise typer.Exit(code=1)
+    ui.echo(f"released {key}")
 
 
 legacy_app = typer.Typer(
@@ -1357,10 +1739,20 @@ legacy_app.command("exploit-poc")(exploit_poc)
 legacy_app.command("attack-chain")(attack_chain)
 legacy_app.command("host-pentest")(host_pentest)
 legacy_app.command("cloud-pentest")(cloud_pentest)
+legacy_app.command("port-scan")(port_scan_cmd)
+legacy_app.command("tls-cipher-scan")(tls_cipher_scan_cmd)
+legacy_app.command("dast-scan")(dast_scan_cmd)
+legacy_app.command("injection-scan")(injection_scan_cmd)
+legacy_app.command("csrf-probe")(csrf_probe_cmd)
+legacy_app.command("ssrf-probe")(ssrf_probe_cmd)
+legacy_app.command("auth-attack-scan")(auth_attack_scan_cmd)
+legacy_app.command("idor-scan")(idor_scan_cmd)
 legacy_app.command("pr-gate")(pr_gate)
 legacy_app.command("serve")(serve)
 legacy_app.command("knowledge-ingest")(knowledge_ingest)
 legacy_app.command("knowledge-evaluate")(knowledge_evaluate)
+
+apply_theme(app)
 
 
 if __name__ == "__main__":
@@ -1372,7 +1764,7 @@ def main() -> None:
 
 
 def legacy_main() -> None:
-    typer.echo(
+    ui.echo(
         "warning: `zyvor-qa` is deprecated and will be removed in a future release; use `argus` instead.",
         err=True,
     )

@@ -1,17 +1,5 @@
-# Copyright 2026 ZyvorAI Labs Private Limited
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
+# Copyright 2026 Zyvor AI Labs · https://zyvor.dev
+# SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
 from __future__ import annotations
 
 from functools import lru_cache
@@ -52,7 +40,7 @@ class Settings(BaseSettings):
 
     # Mission Control dashboard ask defaults (never taken from the browser).
     knowledge_tenant_id: str = "public"
-    knowledge_access_levels: Annotated[tuple[str, ...], NoDecode] = ("public", "customer")
+    knowledge_access_levels: Annotated[tuple[str, ...], NoDecode] = ("public", "user")
     knowledge_checkpoint_path: str = "reports/knowledge-checkpoints.sqlite"
     enable_live_cluster_tools: bool = False
     knowledge_live_namespaces: Annotated[tuple[str, ...], NoDecode] = ()
@@ -78,7 +66,7 @@ class Settings(BaseSettings):
     max_tool_calls: int = Field(default=8, ge=1, le=20)
     max_query_length: int = Field(default=4000, ge=100, le=20000)
     enable_public_documents: bool = True
-    default_access_levels: Annotated[tuple[str, ...], NoDecode] = ("public", "customer")
+    default_access_levels: Annotated[tuple[str, ...], NoDecode] = ("public", "user")
 
     @field_validator(
         "llm_base_url",

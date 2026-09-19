@@ -1,17 +1,5 @@
-# Copyright 2026 ZyvorAI Labs Private Limited
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
+# Copyright 2026 Zyvor AI Labs · https://zyvor.dev
+# SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
 """End-to-end CSRF check through the real FastAPI app: log in (which issues
 both the session and CSRF cookies), then confirm a mutating dashboard
 request is rejected without X-CSRF-Token and accepted with it. Uses
@@ -86,3 +74,16 @@ def test_get_requests_are_not_csrf_checked():
     response = client.get("/api/dashboard/overview")
 
     assert response.status_code != 403
+
+
+def test_relogin_while_authenticated_does_not_require_csrf():
+    """Visiting /login with a live session and signing in again must work
+    without X-CSRF-Token — the login form is an open credential gate."""
+    client = _logged_in_client()
+
+    response = client.post(
+        "/api/login", json={"username": "admin", "password": "Admin@321"}
+    )
+
+    assert response.status_code == 200
+    assert response.json().get("ok") is True

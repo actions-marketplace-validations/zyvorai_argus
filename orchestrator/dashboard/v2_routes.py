@@ -1,17 +1,5 @@
-# Copyright 2026 ZyvorAI Labs Private Limited
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
+# Copyright 2026 Zyvor AI Labs · https://zyvor.dev
+# SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
 """Versioned enterprise API for durable jobs, schedules, findings and audit."""
 
 from __future__ import annotations
@@ -327,6 +315,18 @@ async def list_requirements(request: Request, limit: int = Query(200, ge=1, le=5
     return {"requirements": get_store().list_requirements(limit)}
 
 
+@router.get("/requirements/impact-graph")
+async def requirement_impact_graph(request: Request) -> dict[str, Any]:
+    """Groups every requirement's latest version by the data models and
+    business flows named in agents/requirement_entities/ output: which
+    requirements share a data model, and which generated tests trace to
+    which flow -- the bounded first slice of impact analysis named as an
+    open gap in ROADMAP.md. Registered before `/{requirement_id}` so
+    "impact-graph" isn't swallowed as a path parameter."""
+    require_scope(request, "requirements:read")
+    return get_store().requirement_impact_graph()
+
+
 @router.get("/requirements/{requirement_id}")
 async def get_requirement(request: Request, requirement_id: str) -> dict[str, Any]:
     """Latest version's full content, quality score, and named quality issues."""
@@ -340,9 +340,110 @@ async def get_requirement(request: Request, requirement_id: str) -> dict[str, An
 @router.get("/requirements/{requirement_id}/history")
 async def requirement_history(request: Request, requirement_id: str) -> dict[str, Any]:
     """Every version on record -- the raw material for a real diff view, and
-    for answering "what changed" when a requirement's quality score moves."""
+    for answering "what changed" when a requirement's quality score moves.
+    Each version is enriched with `linked_tests` -- the generated tests that
+    trace to it (`link_requirement_test`) -- so a caller can see, per
+    version, what was actually generated from it without a second round
+    trip per version."""
     require_scope(request, "requirements:read")
-    return {"versions": get_store().requirement_history(requirement_id)}
+    store = get_store()
+    versions = store.requirement_history(requirement_id)
+    for version in versions:
+        version["linked_tests"] = store.linked_tests(requirement_id, version["version"])
+    return {"versions": versions}
+
+
+@router.get("/intel/health")
+async def intel_health(request: Request, limit: int = Query(40, ge=1, le=200)) -> dict[str, Any]:
+    """Suite health + quarantine overlay. Read-only."""
+    require_scope(request, "jobs:read")
+    from orchestrator.intelligence.health import summarize
+
+    return summarize(limit=limit)
+
+
+@router.get("/intel/quarantine")
+async def intel_quarantine_list(
+    request: Request,
+    include_inactive: bool = Query(False),
+) -> dict[str, Any]:
+    require_scope(request, "jobs:read")
+    from orchestrator.intelligence import quarantine as q
+
+    return {"quarantine": q.listing(include_inactive=include_inactive)}
+
+
+@router.post("/intel/quarantine", status_code=201)
+async def intel_quarantine_add(request: Request, payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    identity = require_scope(request, "jobs:write")
+    from orchestrator.intelligence import quarantine as q
+
+    try:
+        entry = q.add(
+            str(payload.get("title") or ""),
+            file=str(payload.get("file") or ""),
+            reason=str(payload.get("reason") or ""),
+            owner=str(payload.get("owner") or identity.subject),
+            ttl_hours=int(payload.get("ttl_hours") or 72),
+            category=str(payload.get("category") or "flaky"),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    get_store().audit(
+        "intel.quarantine.add", actor=identity.subject, resource_type="quarantine",
+        resource_id=entry["key"], detail={"title": entry["title"], "ttl_hours": payload.get("ttl_hours")},
+    )
+    return entry
+
+
+@router.delete("/intel/quarantine/{key:path}")
+async def intel_quarantine_release(request: Request, key: str) -> dict[str, Any]:
+    identity = require_scope(request, "jobs:write")
+    from orchestrator.intelligence import quarantine as q
+
+    released = q.release(key)
+    get_store().audit(
+        "intel.quarantine.release", actor=identity.subject, resource_type="quarantine",
+        resource_id=key, outcome="success" if released else "ignored",
+    )
+    if not released:
+        raise HTTPException(status_code=404, detail="quarantine entry not found")
+    return {"released": True, "key": key}
+
+
+@router.post("/intel/select")
+async def intel_select(request: Request, payload: dict[str, Any] = Body(default={})) -> dict[str, Any]:
+    """Change-based test selection from git + optional requirement links."""
+    require_scope(request, "jobs:read")
+    from orchestrator.intelligence.select import select_from_git
+
+    base = str(payload.get("base") or "HEAD~1")[:80]
+    head = str(payload.get("head") or "HEAD")[:80]
+    include_quarantined = bool(payload.get("include_quarantined"))
+    extra = payload.get("linked_tests") if isinstance(payload.get("linked_tests"), list) else None
+    linked = [str(x) for x in extra] if extra else None
+    if linked is None:
+        try:
+            graph = get_store().requirement_impact_graph()
+            linked = []
+            for bucket in (graph.get("flows") or {}).values():
+                linked.extend(bucket.get("tests") or [])
+        except Exception:
+            linked = []
+    return select_from_git(
+        base=base, head=head, linked_tests=linked, include_quarantined=include_quarantined,
+    )
+
+
+@router.get("/intel/studio/{job_id}")
+async def intel_studio(request: Request, job_id: str) -> dict[str, Any]:
+    require_scope(request, "jobs:read")
+    from orchestrator.intelligence.studio import build_studio
+
+    job = get_store().get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="job not found")
+    return build_studio(job)
 
 
 @router.get("/metrics", include_in_schema=False)

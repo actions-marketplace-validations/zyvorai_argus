@@ -1,17 +1,5 @@
-# Copyright 2026 ZyvorAI Labs Private Limited
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
+# Copyright 2026 Zyvor AI Labs · https://zyvor.dev
+# SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
 import sqlite3
 import time
 import uuid
@@ -48,6 +36,29 @@ def test_idempotency(tmp_path):
     first = store.enqueue_job("smoke", {}, idempotency_key="deploy-123")
     second = store.enqueue_job("smoke", {}, idempotency_key="deploy-123")
     assert first["id"] == second["id"]
+
+
+def test_trace_context_round_trips_through_enqueue_and_claim(tmp_path):
+    """Cross-replica trace propagation: a traceparent persisted at enqueue
+    time (as if captured from an active job.enqueue span) survives a claim
+    on what could be a different process/replica, so DurableJobService can
+    parent the job.execute span on it."""
+    store = MissionControlStore(tmp_path / "state.db")
+    traceparent = "00-30957595af83ba0d07f0a11ce2733726-097cdd883f795456-01"
+    job = store.enqueue_job("smoke", {}, trace_context=traceparent)
+    assert job["trace_context"] == traceparent
+
+    claimed = store.claim_job()
+    assert claimed and claimed["trace_context"] == traceparent
+
+    fetched = store.get_job(job["id"])
+    assert fetched and fetched["trace_context"] == traceparent
+
+
+def test_trace_context_defaults_to_none(tmp_path):
+    store = MissionControlStore(tmp_path / "state.db")
+    job = store.enqueue_job("smoke", {})
+    assert job["trace_context"] is None
 
 
 def test_schedule_persists_and_redacts(tmp_path):
@@ -340,6 +351,21 @@ def test_advance_schedule_does_not_bump_runs_when_not_ran(tmp_path):
 def test_advance_schedule_is_a_no_op_for_unknown_schedule(tmp_path):
     store = MissionControlStore(tmp_path / "state.db")
     store.advance_schedule("does-not-exist", ran=True)  # must not raise
+
+
+def test_advance_schedule_catch_up_preserves_cadence(tmp_path, monkeypatch):
+    monkeypatch.setenv("ZYVOR_SCHEDULE_CATCHUP", "true")
+    store = MissionControlStore(tmp_path / "state.db")
+    schedule = store.add_schedule("smoke", {}, 60)
+    overdue = time.time() - 120
+    with store.connect() as conn:
+        conn.execute("UPDATE schedules SET next_at=? WHERE id=?", (overdue, schedule["id"]))
+    store.advance_schedule(schedule["id"], ran=True)
+    with store.connect() as conn:
+        nxt = conn.execute("SELECT next_at FROM schedules WHERE id=?", (schedule["id"],)).fetchone()["next_at"]
+    assert abs(nxt - (overdue + 60)) < 0.5
+    refreshed = store.get_schedule(schedule["id"])
+    assert refreshed["runs"] == 1
 
 
 # -- audit -------------------------------------------------------------------

@@ -5,6 +5,303 @@ scattered across runbooks, docstrings, and CI config comments. This is
 inventory, not a promise sheet — no dates, just what's open and where the
 detail already lives.
 
+## Test intelligence: flake quarantine, change-based selection, failure studio
+
+First slice — **done.** File-backed on purpose (`reports/quarantine.json`), so this
+does not grow `MissionControlStore` / `PostgresStore`'s public surface.
+
+- Deterministic failure taxonomy (`orchestrator/intelligence/classify.py`):
+  healthy / failing / flaky / selector / assertion / infra / data. Quarantine
+  is recommended only after ≥3 runs with a mixed pass/fail history.
+- Quarantine with TTL + owner + release/expiry. Never heals assertions —
+  quarantine is an explicit operator action.
+- Change-based selection from `git diff --name-only` + `requirement_test_links`
+  + smoke fallback on product-path changes. Infra-only diffs do not enqueue
+  a product suite.
+- Failure studio: `GET /api/v2/intel/studio/{job_id}` joins the job's cases
+  with on-disk video/trace presence and a classification.
+- CLI: `argus intel health|select|quarantine-*`. Job kind `select_tests`.
+
+**Still named rather than silently skipped:** in-run locator healing, heal-PRs,
+Playwright Healer/Planner adapters, session-replay coverage clustering,
+concurrent dashboard jobs, Watchfloor-lite multi-target switcher.
+
+## New test-capability families: contract testing, chaos testing, database testing, compliance/SCA scanning
+
+Shipped as four phases, all done. Each is an independently-shippable, real
+slice, not a stub — see each phase's own section below for what it built,
+what it deliberately left out, and exactly what was and wasn't live-verified
+(the two credentialed/sandboxed phases, 3 and 4, are honest about the one
+thing no Kubernetes cluster in this development environment could verify:
+actual pod execution).
+
+### ~~Phase 1: compliance signals + API contract diffing~~ — done
+
+- **Compliance signal checks**, folded into the existing `misconfig_scan` job
+  (no new job kind) — `agents/probes/misconfig_scan.py` gained
+  `check_security_txt()` (RFC 9116 `/.well-known/security.txt` presence +
+  required-field check), `check_consent_signals()` (heuristic scan for known
+  consent-management-platform markers — explicitly not a legal/compliance
+  determination), and `scan_pii_patterns()` (SSN-shaped and Luhn-valid
+  credit-card-shaped strings in the response body — deliberately *not* a bare
+  email-address scan, which would flag a normal contact address on almost
+  every real site and be pure noise). New finding categories:
+  `missing-security-txt` (low), `no-consent-mechanism` (low), `pii-exposure`
+  (high). Live-verified against a real local HTTP server serving a page with
+  a planted Luhn-valid card number and no security.txt/consent marker — all
+  three correctly detected, with no duplicate findings (an early version
+  double-counted the "security.txt not found" case; fixed and covered by a
+  regression test).
+- **`api_contract_diff`** — pure-Python OpenAPI breaking-change diff between
+  two spec references (inline object, `http(s)://` URL, or
+  `git:<ref>:<path>` resolved against this repo's own checkout via `git
+  show`). New `agents/contract_diff/` package (`loader.py` + `engine.py`).
+  Not gated by a security engagement (`ELEVATED_RISK_KINDS`) — pure static
+  analysis, no live target interaction, same class as `import_codegen`.
+  Classifies changes as `breaking` (removed endpoint/response-code/field,
+  new required request param, request param type change, response field
+  type change, enum value removed) or `non_breaking` (added
+  endpoint/response-code/field, new optional param, removed param, enum
+  value added). **Deliberately out of scope for this first slice, named
+  rather than silently skipped:** no `oneOf`/`allOf`/`discriminator`
+  semantic diffing, no vendor extensions, no `$ref`s that point outside the
+  document being diffed (external file/URL refs resolve to an empty schema
+  rather than erroring). Live-verified end to end through the real Mission
+  Control UI (a new "API contract diff" card in the API panel) against a
+  running `argus serve`: pasted two inline specs with a real breaking change
+  (new required param + removed response field), clicked "Diff specs",
+  confirmed both changes were correctly classified and landed as `high`
+  severity findings in the real Findings panel — not just unit-tested.
+  Separately verified the `git:` mode against a real file in this repo
+  (`git show HEAD:package.json`).
+
+### ~~Phase 2: consumer contract verification (`contract_verify`) + SCA scanning (`sca_scan`)~~ — done
+
+- **`contract_verify`** — derives expectations from a recorded HAR (a new
+  `agents/contract_verify/engine.py`, rule-based, not LLM: no ambiguity to
+  resolve) and replays each against a live provider, diffing status,
+  content-type, and top-level JSON key/type shape. Only HAR entries whose
+  recorded response is `application/json` are considered — the rest of a
+  full-page recording (HTML/CSS/JS/images) is noise for this purpose, not
+  signal. Explicitly not Pact — no broker, no publish/subscribe, no contract
+  versioning, no cross-team matrix, no "can-i-deploy" gating; the honest
+  on-ramp, not the destination. Gated at `active_recon` tier (read-only
+  against the target, same tier as `misconfig_scan`/`cve_lookup`). New
+  `action-contract-verify` card in the API panel.
+- **`sca_scan`** — two independent modes. Black-box: reuses `cve_lookup`'s
+  `fingerprint_tech()` client-side library/version fingerprinting,
+  cross-referenced against a small bundled `agents/probes/data/license_map.json`
+  (dozens of well-known libraries, not a real SBOM) to flag copyleft/
+  restricted licenses. Local-checkout: subprocess-wraps `pip-audit`
+  (new optional `sca` extra in `pyproject.toml`) / `npm audit` against an
+  operator-local `checkout_path` — never fetched over the network, so this
+  mode alone needs no SSRF/engagement gating (a special-cased branch in
+  `_validate()`'s elevated-risk enforcement: `sca_scan` without a `url` skips
+  the engagement requirement entirely, unlike every other kind in
+  `ELEVATED_RISK_KINDS`). Tool absence degrades to `skipped: True` with a
+  reason, never a fabricated result.
+  **Real bug caught in live verification and fixed**: the first
+  implementation ran bare `pip-audit --format json` with no `-r`/project-path
+  argument, which silently audits the *running* Python environment instead
+  of the checkout being scanned — a deliberately-vulnerable
+  `requests==2.19.1` fixture produced zero findings until this was caught
+  and fixed (`-r requirements.txt` when present, the checkout path itself
+  otherwise). New `action-sca` card in the Security panel.
+  Live-verified end to end through the real Mission Control UI against a
+  running `argus serve` for every mode: `contract_verify` against a real
+  target server missing a HAR-recorded field (caught correctly, real
+  `high`-severity finding); `sca_scan` local-checkout mode both without
+  `pip-audit` on `PATH` (graceful `skipped` degradation) and with it (a real
+  audit surfacing real transitive-dependency CVEs, e.g. `urllib3`); `sca_scan`
+  black-box mode against a real server serving a WordPress generator tag
+  (correctly flagged `GPL-2.0-or-later` as `copyleft-or-restricted`) and a
+  real jQuery/MIT asset (correctly not flagged). New
+  `tests/unit/test_contract_verify.py`, `test_sca_scan.py`; extended
+  `test_jobs_validate.py`, `test_findings.py`.
+
+### ~~Phase 3: `db_assert` (database/data-integrity testing)~~ — done
+
+First real database access Argus has ever had. One job kind, read-only
+`SELECT`-only assertion (`row_count` / `cell_equals` / `column_values`,
+each with a comparison op) against `postgres`/`mysql`/`sqlite`.
+
+- **`orchestrator/security/sql_guard.py`** — `validate_select_only()`,
+  mirrors `target_policy.py`'s validate-before-execute shape: strips
+  comments, rejects multi-statement input, requires a `SELECT`/`WITH ...
+  SELECT` prefix, denylists mutating keywords anywhere in the body. A
+  keyword/shape check, not a real SQL parser — documented explicitly as
+  defense-in-depth, not a claim of being unbypassable. The real backstop is
+  that the DB role behind the `db_secret` credential must itself be
+  read-only, an IAM control outside Argus's ability to verify (same posture
+  `host_pentest` takes toward SSH account scoping). A naming-convention
+  safety net (e.g. requiring `-staging` in the DSN) was considered and
+  rejected as security theater — trivially spoofable, false confidence.
+- **`agents/db_assert/runner_script.py`** — deliberately **not**
+  LLM-generated (unlike `exploit_poc`/`host_pentest`/`cloud_pentest`'s
+  `poc_generator.py`): a single fixed script checked into the repo. The
+  query and assertion are declarative data passed in via env vars, never
+  embedded in generated code, so there's no per-run code to hash-and-audit
+  — the auditable artifact is the query + assertion text themselves
+  (`orchestrator/dashboard/jobs.py::_job_db_assert`'s audit call records
+  them in full, unlike credential values).
+- **Gating**: one explicit fail-closed opt-in
+  (`ZYVOR_DB_TESTING_ENABLED=true`), not `exploit_poc`'s three-gate stack —
+  this is read-only and makes no destructive claim, but does touch live
+  data with real credentials, warranting more than the probe kinds get.
+  `active_recon`-tier engagement (not `exploit`). New `sandbox.db_image()`
+  (`ZYVOR_SANDBOX_DB_IMAGE`), same fail-closed pattern as
+  `host_pentest_image()`/`cloud_pentest_image()`.
+- **Deliberately deferred**: migration testing and seed/teardown fixtures,
+  same "smaller honest slice, don't half-build the risky one" posture as
+  `cloud_pentest` deferring AD/Kerberos tooling.
+
+**Live-verified, with one honest gap.** No real Kubernetes cluster is
+reachable in this development environment (same situation `cloud_pentest`
+was built under — no cloud credentials were available for that pass
+either), so the actual K8s sandbox execution of `db_assert` is
+**unit-tested only** (mocked `sandbox.run_python`), not live-run inside a
+real pod. Everything else *is* live-verified, for real:
+- `sql_guard.validate_select_only()` — run directly against real
+  accept/reject query strings.
+- `agents/db_assert/runner_script.py` — the actual script that would run
+  inside the sandbox, invoked exactly as the sandbox invokes it
+  (`python3 runner_script.py` as a subprocess with env vars), against both
+  a real local SQLite database and a real local Postgres 14 instance: row
+  count / cell / column-values assertions passing and failing correctly, a
+  connection failure degrading to `VERIFIED: false` instead of crashing,
+  and confirmed a planted secret value never appears in the script's
+  stdout even on a connection error.
+- The full `_validate()` → engagement-check → `_job_db_assert` dispatch
+  chain, through a real browser driving the real Mission Control UI against
+  a running `argus serve`: created a real engagement via the API, filled
+  the new "DB assert" card, clicked "Run assertion", and confirmed the
+  request reaches exactly the expected `RuntimeError` at the one boundary
+  that genuinely needs a cluster — not a validation error, not a crash.
+  This incidentally also confirmed something the unit tests didn't cover
+  directly: `db_secret` shows as `"***"` in the persisted job's params via
+  the real `/api/dashboard/jobs/status` endpoint, i.e. redaction holds at
+  the store/API level, not just inside the job function.
+
+New: `orchestrator/security/sql_guard.py`, `agents/db_assert/`
+(`runner_script.py`, `engine.py`), new "DB assert" card in the Security
+panel. Tests: `tests/unit/test_sql_guard.py`, `test_db_assert_runner.py`
+(includes real-subprocess-against-real-SQLite cases), `test_db_assert_job.py`
+(mirrors `test_pentest_jobs.py`'s secret-non-leak shape); extended
+`test_jobs_validate.py`.
+
+**Also noticed during this phase, fixed in a follow-up pass:**
+`cloud_pentest`'s Mission Control card didn't actually exist —
+`jobParams("cloud_pentest")` in `templates/dashboard.html.j2` referenced
+DOM elements (`cp-eng`, `cp-creds`, `cp-provider`, `cp-target`, `cp-finding`,
+`cp-timeout`) that weren't present anywhere in the template, only reachable
+via the command palette entry which hit the same missing elements.
+Added the `action-cloud-pentest` card to the Security panel (same shape as
+`action-host-pentest`, right above it). Live-verified against a real
+`argus serve` instance with `ZYVOR_CREDENTIALED_PENTEST_ENABLED=true`: opened
+the dashboard in a real browser, confirmed the card renders and scrolls into
+view, filled all six fields (including a `$secret` env-ref for
+`secret_access_key`) and selected a real `exploit`-tier engagement, confirmed
+`jobParams("cloud_pentest")` builds the exact expected params object with the
+secret ref intact, then clicked through `startJob("cloud_pentest")` and
+confirmed via `/api/dashboard/jobs/status` it reaches the same
+"exploit sandbox unavailable" `RuntimeError` boundary as `host_pentest`/
+`db_assert`/`chaos_inject` in this cluster-less dev environment — and that the
+persisted job params show `secret_access_key: "***"`, i.e. redaction holds
+end-to-end through the real UI path, not just in unit tests.
+
+### ~~Phase 4: `chaos_inject` / `chaos_webhook` (fault-injection testing)~~ — done
+
+The highest-risk phase, as planned: `chaos_inject` needed a new, narrow
+`sandbox.run_chaos()` entry point granting `CAP_NET_ADMIN` (for `tc`/
+`iptables` fault shaping) — a deliberate, callout-worthy exception to the
+sandbox's normal "drop ALL capabilities" invariant. `_run_job()` (the
+shared implementation `run_python()`/`run_chaos()` both now call) takes an
+`extra_capabilities` parameter that only `run_chaos()` ever passes a
+non-`None` value for — `run_python()` still drops everything, unchanged,
+confirmed by a dedicated test that inspects the actual `V1SecurityContext`
+each function builds. Real target-cluster pod-kill/infra chaos is
+explicitly out of scope — Argus never holds privileged access to a
+user's own cluster; `chaos_webhook` covers that case by triggering the
+*user's own* chaos tooling (Chaos Mesh/Litmus) instead, needing zero
+new sandbox capability.
+
+- **`agents/chaos/verdict.py::assess_resilience()`** — deterministic
+  rubric, no LLM call (there's no ambiguity to resolve): graceful
+  degradation means no raw stack trace leaked, error rate under an
+  operator-set threshold, and latency recovered to baseline within an
+  operator-set SLA. Every violated criterion is named in the result, not
+  just the first one found.
+- **`agents/chaos/probe.py`** — plain HTTP latency/recovery-time
+  measurement, shared by both job kinds. No privileged operations, so
+  unlike the fault-injection mechanism itself this is fully live-testable.
+- **`agents/chaos/inject_script.py`** — mechanical (not LLM-generated)
+  `tc netem`/`iptables` script builder for `chaos_inject`'s four fault
+  types. **Two real bugs were caught and fixed during development**, both
+  found by actually running the generated script's control flow (with the
+  real `tc`/`iptables` commands swapped for a harmless no-op — the real
+  commands were never executed anywhere, on principle: this development
+  machine's own network is not an authorized target regardless of cluster
+  availability): (1) a bare foreground `sleep N` is **not** interruptible
+  by a trap in `sh` — the trap only runs once the foreground command
+  completes, so an early kill signal would have silently waited out the
+  *entire* fault duration before tearing anything down, exactly the
+  opposite of the "guaranteed teardown" the script's own comment claimed.
+  Fixed by backgrounding the sleep and `wait`-ing on it, which makes the
+  wait interruptible. (2) The trap firing doesn't by itself stop an
+  already-backgrounded sibling process — the sleep child was left running
+  as an orphan even after teardown "completed". Fixed by having the trap
+  explicitly `kill` it. Both are locked in by a regression test that sends
+  a real `SIGTERM` mid-run and asserts teardown happens within seconds, not
+  after the full fault duration.
+- **Gating**: `exploit`-tier engagement (both kinds), `ZYVOR_CHAOS_INJECTION_ENABLED`
+  opt-in, and a third, per-run `target_accepts_fault_injection` attestation
+  — distinct from the other two because it's a confirmation *this specific
+  target* consented, not operator-level policy. `control_kind` is
+  allowlisted to `{flow, smoke}` and its params are validated by
+  recursively calling `_validate()` for that kind — passing e.g.
+  `exploit_poc` as the "control" is rejected outright, not silently
+  accepted. `latency_ms`/`packet_loss_pct`/`duration_s` are hard-capped
+  server-side, not relaxable via params.
+
+**Live-verified, with one honest gap** (same shape as Phase 3's): no real
+Kubernetes cluster is reachable in this development environment, so
+`chaos_inject`'s actual `run_chaos()` execution against a real pod is
+unit-tested only (a mocked K8s client that inspects the real `V1Job`/
+`V1SecurityContext` objects built, confirming the `CAP_NET_ADMIN` grant is
+correct). Everything else *is* live-verified, for real:
+- `assess_resilience()` and `looks_like_stack_trace()` against synthetic
+  data covering every branch.
+- `probe.py`'s latency/recovery measurement against a real local HTTP
+  server with a genuine, timed slow-then-fast fault window (not just the
+  trivial already-fast case).
+- `inject_script.py`'s generated shell — syntax-checked for all four fault
+  types, and its control-flow (trap/background/wait/teardown) actually
+  executed as a real subprocess, including sending it a real `SIGTERM`
+  mid-run (the regression test for the two bugs above).
+- `chaos_webhook` end to end, with **zero mocking of the actual mechanics**:
+  a real local mock chaos-experiment webhook server (confirmed it received
+  real `/start` and `/stop` POSTs), a real target HTTP server, and a real
+  Playwright browser running the `flow` control test — both the graceful
+  (2/2 steps passed, no finding) and resilience-gap (steps failed, `high`-
+  severity finding raised) outcomes, run directly and again through the
+  real Mission Control UI against a running `argus serve`.
+- `chaos_inject`'s full `_validate()` → engagement-check → dispatch chain,
+  including all three gates, the `control_kind` allowlist rejecting
+  `exploit_poc`, and every param hard-cap — through both a direct call and
+  the real UI — confirmed it fails at exactly the expected
+  sandbox-unavailable boundary, the one point that genuinely needs a
+  cluster.
+
+New: `agents/chaos/` (`verdict.py`, `probe.py`, `inject_script.py`), new
+`sandbox.run_chaos()`/`chaos_image()`, new "Chaos inject"/"Chaos webhook"
+cards in the Security panel. Tests: `tests/unit/test_chaos_verdict.py`,
+`test_chaos_probe.py`, `test_chaos_inject_script.py`, `test_chaos_jobs.py`;
+extended `test_sandbox.py`, `test_jobs_validate.py`.
+
+**With this, all four phases of the "make Argus one-stop" plan are
+done** — see the top of this section for what each phase covers and what
+each deliberately left out.
+
 ## Test coverage — in progress
 
 Overall unit-test coverage (as measured by the CI gate's own command,
@@ -135,6 +432,12 @@ whole-suite coverage metric from 47% to 50%. `jobs.py`'s `_job_*`/
 genuinely low-marginal-value remainder — real subprocess/Playwright/network
 calls, not logic worth unit-testing in isolation.
 
+**Update**: the four test-capability phases above (`api_contract_diff`/
+`contract_verify`/`sca_scan`/`db_assert`/`chaos_inject`/`chaos_webhook`) added
+several heavily-tested new packages, moving measured whole-suite coverage to
+**53.47%**. CI's `--cov-fail-under` raised 47 → 50 to match, keeping the same
+~3-point cushion below the real floor as every prior raise (36 → 40 → 47 → 50).
+
 The CI gate (`.github/workflows/security.yml`) enforces
 `--cov-fail-under=40` (raised from 36, itself raised from an original,
 never-actually-met 70% target) — still a deliberate few points below the
@@ -152,30 +455,41 @@ tables), LLM-driven quality/gap scoring (`agents/requirement_quality/`), and
 first-cut traceability (`requirement_test_links`): a changed requirement
 surfaces which previously-generated tests trace to its old version.
 
-Deliberately not built yet, and not stubbed:
+Deliberately scoped earlier slices are now complete:
 
-- **Ticket-system (Jira-like), email, and meeting-transcript sources** —
-  each needs a real per-source connector (OAuth or API client for
-  tickets/email; a transcription/diarization step for meetings) that
-  doesn't exist anywhere in this repo today. `orchestrator/nodes/fetch.py`'s
-  `source` branch is the extension point — a new source only needs to
-  produce `spec_contents: List[str]`, which `parse_requirements` already
-  consumes unchanged, exactly like `document` does today.
-- **Business-flow/data/automation-level impact analysis** — today's impact
-  check answers "which generated tests trace to a requirement that
-  changed," which is real but narrow. A flow/dependency graph (which
-  requirements share a data model, which automation depends on which flow)
-  doesn't exist anywhere in this repo yet and would be a separate,
-  significant modeling effort, not an extension of the existing
-  requirement→test join table.
-- **A dashboard/UI surface for requirement history and quality scores** —
-  the OSS API now exposes this read-only (`GET /api/v2/requirements`,
-  `/{id}`, `/{id}/history`, gated by a new `requirements:read` scope), but
-  nothing renders it yet. Natural next step is an Argus Enterprise proxy
-  route + Watchfloor panel, matching the pattern already used for
-  engagement-policy and artifacts.
+- ~~**Ticket-system (Jira-like), email, and meeting-transcript sources**~~ —
+  **done.** `agents/requirements_sources/`: `email` (`.eml` + IMAP),
+  `transcript`, `jira` (JSON / REST / OAuth), `diarize` (speaker VTT +
+  optional live audio). Wired through `fetch_requirements`, CLI `--source`,
+  and Mission Control job validation.
+- ~~**Business-flow/data-model impact analysis**~~ — **done.**
+  The original change-based impact check ("which generated tests trace to a
+  requirement that changed") is joined by shared data models/flows,
+  co-occurrence `model_edges`, and typed `model_dependencies` (schema v6,
+  Order → Payment) with an SVG canvas in Mission Control
+  (`GET /api/v2/requirements/impact-graph`).
+- ~~**A dashboard/UI surface for requirement history and quality scores**~~
+  — **done, for Mission Control (OSS).** A new **Requirements** panel
+  (`templates/dashboard.html.j2`, `data-panel="requirements"`) lists every
+  requirement (title, source, latest version, color-coded quality score,
+  last-updated), and a click-through detail view pulls `GET
+  /api/v2/requirements/{id}` + `/{id}/history` for the description, named
+  quality issues, and full version history — each version now also carries
+  `linked_tests` (the route enriches `requirement_history()`'s response with
+  `MissionControlStore.linked_tests()`, previously computed but never
+  exposed over HTTP), so a version's generated tests show inline instead of
+  needing a second lookup. Polls every 30s alongside the panel's siblings
+  (findings, engagements). Live-verified in a real browser against a
+  running `argus serve` (not just `TestClient`): seeded two requirements
+  (one two-version history with a per-version linked test, one single-version
+  with a quality issue) via a real `MissionControlStore`, confirmed the list
+  renders, the detail drawer opens with the right content for both rows,
+  quality-issue text and linked-test paths appear correctly, and the browser
+  console is clean. New `tests/unit/test_requirements_route.py` case for the
+  `linked_tests` enrichment. **Still open:** an Argus Enterprise/Watchfloor
+  proxy route + panel (separate commercial product, not this repo).
 
-## ~~Observability: tracing~~ — done (within-process; cross-replica propagation still open)
+## ~~Observability: tracing~~ — done (within-process and cross-replica)
 
 `orchestrator/observability/metrics.py`'s Prometheus counters/gauges are now
 joined by `orchestrator/observability/tracing.py`, opt-in via
@@ -204,13 +518,30 @@ through `DurableJobService` end to end (enqueue → worker claims → executes
 `tests/unit/test_tracing.py` (no-op-when-disabled path, plus real span
 emission/error-status assertions against an `InMemorySpanExporter`).
 
-**Deliberately not done, named rather than silently skipped**: trace context
-does not yet propagate across the enqueue → claim boundary when those
-happen on different replicas — would need a persisted `traceparent` column
-on the `jobs` table (mirrored into both `MissionControlStore` and
-`PostgresStore`), so an `enqueue()` span and its later `job.execute` span
-show up as one linked trace instead of two independent ones. Real, bounded
-follow-on work, not part of this pass.
+**Cross-replica propagation — done.** `jobs.trace_context` (schema v4, both
+`MissionControlStore` and `PostgresStore`, `ALTER TABLE`-on-migrate for
+existing databases) persists a serialized W3C `traceparent`.
+`orchestrator/observability/tracing.py` gained two pieces:
+`current_traceparent()` serializes the active span's context, and
+`start_span(..., trace_context=...)` extracts a `traceparent` string back
+into a parent context — `None`/omitted behaves exactly as before (parented
+to whatever's locally active, or a new root span). `DurableJobService.enqueue()`
+now wraps the call in a `job.enqueue` span, captures its `current_traceparent()`,
+and passes it to `store.enqueue_job(trace_context=...)`; `_worker_loop` reads
+it back off the claimed row and passes it as `job.execute`'s `trace_context`
+— so a job enqueued on one replica and claimed on another links into one
+trace instead of two independent ones.
+
+**Live-verified**, not just unit-tested with a mocked SDK: ran the real
+enqueue → persist → claim → execute sequence against both a real SQLite
+`MissionControlStore` and a real local Postgres 14 instance, confirming
+`job.execute`'s span shares `job.enqueue`'s `trace_id` and has its
+`span_id` as `parent_id` in both cases — and separately ran the full
+`DurableJobService.enqueue()` → worker-thread-claims → executes path
+end to end (not the store methods in isolation) with the same assertion.
+New tests: `tests/unit/test_tracing.py` (context-propagation cases),
+`tests/unit/test_persistence_store.py`/`test_postgres_store.py`
+(`trace_context` round-trips through enqueue/claim/get).
 
 ## ~~Horizontal scale: Postgres-backed store~~ — done
 
@@ -246,14 +577,20 @@ persisted). New `tests/unit/test_postgres_store.py`, skipped by default
 against a genuine `postgres:16` service container, so this doesn't quietly
 bit-rot untested between the rare times someone exercises it locally.
 
-## Scheduler: single-flight, drops missed ticks
+## Scheduler: single-flight, catch-up opt-in
 
 Already documented operationally in
 [`docs/devops/04-mission-control-ops.md`](docs/devops/04-mission-control-ops.md#3-scheduled-checks-optional):
-schedules are single-flight (a tick is skipped, not queued, if the previous
-run is still in flight), and the runbook is explicit that schedules are for
-human alerting, not a substitute for the CI gate. Cross-linked here so it
-doesn't get "discovered" again as a surprise.
+by default schedules advance from wall-clock *now* (missed ticks are dropped),
+and are for human alerting, not a substitute for the CI gate.
+
+Opt-in behaviour (env):
+
+- `ZYVOR_SCHEDULE_CATCHUP=true` — advance from previous `next_at + interval`
+  (capped) so overdue schedules catch up instead of jumping forward from now.
+- `ZYVOR_SCHEDULE_SKIP_IF_BUSY=true` — leave a due schedule pending while the
+  in-process runner is busy (true skip-while-busy; default still enqueues and
+  requeues via the durable worker).
 
 ## Desktop app v2: single-binary freeze
 
@@ -289,7 +626,10 @@ distribution someone could install without a dev checkout:
   even a fully frozen Python side would still need Node + Playwright
   bundled alongside it — closer in size/complexity to the existing
   `docker/Dockerfile` multi-stage build than to a lightweight desktop
-  installer.
+  installer. **Practical path:** keep the desktop shell thin and point jobs
+  at a remote Mission Control via Settings → **Remote URL** (lab/team host
+  that already has Chromium), or use `docker/Dockerfile`. The desktop app
+  does not need to freeze Playwright to be useful — see `desktop/README.md`.
 
 Code signing + notarization config is wired up (`make desktop-build-signed`,
 `desktop/README.md`'s "Code signing & notarization" section) but not
@@ -431,3 +771,24 @@ attaches `X-CSRF-Token` automatically — none of the ~20 existing `fetch()`
 call sites needed touching individually. Covered by
 `tests/unit/test_csrf_route.py` (real login → protected-route round trip)
 and `tests/unit/test_auth.py`.
+
+## ~~Network-attack / DAST coverage~~ — done (bounded; floods/MITM/AD still deferred)
+
+Shipped eight engagement-gated job kinds that close the inventory in
+[`docs/security-network-attack-gaps.md`](docs/security-network-attack-gaps.md):
+
+- **Recon:** `port_scan` (bounded TCP connect), `tls_cipher_scan` (protocol +
+  weak-cipher grading) at `active_recon`.
+- **DAST / web-attack:** `dast_scan`, `injection_scan`, `csrf_probe`,
+  `ssrf_probe`, `auth_attack_scan`, `idor_scan` at `exploit` **plus**
+  `ZYVOR_DAST_SCAN_ENABLED=true`. `dast_scan` aggregates built-in templates
+  and optionally shells out to nuclei when `ZYVOR_DAST_NUCLEI_BIN` (or
+  `PATH`) provides a binary.
+
+Still deliberately deferred (do not sneak into these jobs):
+
+- Full-range port sweeps, packet capture, MITM, TLS stripping, ARP
+- DDoS / unbounded load
+- AD / Kerberos / LDAP / WinRM, lateral movement / persistence
+- Security job kinds on MCP / Slack allowlists
+- Credential stuffing / password spraying

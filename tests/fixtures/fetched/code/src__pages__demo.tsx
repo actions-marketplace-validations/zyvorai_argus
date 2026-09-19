@@ -1,6 +1,5 @@
-// Copyright (c) 2026 ZyvorAI Labs Private Limited. All rights reserved.
-// Proprietary software — see LICENSE in the repository root.
-// https://zyvor.dev · info@zyvor.dev
+// Copyright 2026 Zyvor AI Labs · https://zyvor.dev
+// SPDX-License-Identifier: Apache-2.0
 
 import {lazy, Suspense, type ReactNode} from 'react';
 import Link from '@docusaurus/Link';
@@ -64,7 +63,7 @@ export default function DemoPage(): ReactNode {
 
       <PageContent>
         <TrustNarrativeDisclaimer>
-          The migration video is a product walkthrough, not a live customer environment. Dashboard access may require
+          The migration video is a product walkthrough, not a live user environment. Dashboard access may require
           approval — book a guided demo for your hypervisor mix.
         </TrustNarrativeDisclaimer>
         <SectionHeader title="Migration video" />

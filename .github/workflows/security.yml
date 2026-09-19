@@ -21,7 +21,7 @@ jobs:
         python: ['3.10', '3.11', '3.12']
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python }}
           cache: pip
@@ -29,13 +29,13 @@ jobs:
       - run: pip install -e '.[dev,knowledge]' mypy pip-audit bandit[toml] pytest-cov
       - run: ruff check .
       - run: mypy orchestrator agents --ignore-missing-imports
-      # TODO: raise back toward 70% as test coverage improves. Raised 40 -> 47 after
-      # bringing all 17 LangGraph pipeline nodes (orchestrator/nodes/*.py) from
-      # 17-47% to 93-100% (~47% -> ~50% actual, 65 new tests); see ROADMAP.md's
+      # TODO: raise back toward 70% as test coverage improves. Raised 47 -> 50
+      # after the contract/SCA/db_assert/chaos test-capability phases added
+      # heavily-covered new packages (~50% -> ~53.47% actual); see ROADMAP.md's
       # "Test coverage" section for what's left (jobs.py's _job_* wrappers,
       # cli.py, dashboard/k8s.py -- real subprocess/Playwright/network calls,
       # the genuinely low-marginal-value remainder).
-      - run: pytest tests/unit --cov=orchestrator --cov=agents --cov-report=term-missing --cov-fail-under=47
+      - run: pytest tests/unit --cov=orchestrator --cov=agents --cov-report=term-missing --cov-fail-under=50
       - run: pip-audit
       - run: bandit -q -c pyproject.toml -r orchestrator agents -x tests
 
@@ -61,7 +61,7 @@ jobs:
           --health-retries 10
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
           cache: pip
@@ -75,7 +75,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: '20'
           cache: npm
@@ -89,8 +89,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/build-push-action@v6
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/build-push-action@v7
         with:
           context: .
           file: docker/Dockerfile.secure
@@ -111,6 +111,6 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: gitleaks/gitleaks-action@v2
+      - uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

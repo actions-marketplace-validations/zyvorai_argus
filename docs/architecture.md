@@ -37,7 +37,7 @@ Three languages, three roles:
 
 | Layer | Language | Location | Role |
 |-------|----------|----------|------|
-| Orchestrator + agents | Python | `orchestrator/`, `agents/`, `github/` | Pipeline control, LLM calls, parsing, reporting |
+| Orchestrator + agents | Python | `orchestrator/`, `agents/`, `github_integration/` | Pipeline control, LLM calls, parsing, reporting |
 | Test execution | TypeScript | `playwright/`, `tests/` | Browser automation, fixtures, artifact capture |
 | Screenshot diff (optional) | Rust | `rust/` | Fast pixel diffing (`zyvor-diff` binary) |
 
@@ -89,8 +89,10 @@ Three conditional edges (all in `graph.py`):
 
 | Field | Type | Set by |
 |-------|------|--------|
-| `source` | `"local" \| "github"` | CLI / webhook |
+| `source` | `"local" \| "github" \| "document" \| "email" \| "transcript" \| "jira" \| "diarize"` | CLI / webhook / jobs |
 | `spec_paths`, `spec_contents` | `list[str]` | `fetch` |
+| `document_paths` | `list[str]` | `fetch` (document/email/transcript/diarize/jira export) |
+| `jira_issue_keys` | `list[str]` | `fetch` (jira) |
 | `requirements` | `list[Requirement]` | `parse` |
 | `generated_tests` | `list[str]` (file paths) | `generate` |
 | `test_results` | `TestResult` | `execute` (enriched by `merge_results` from the parallel regression/api/log nodes) |
@@ -100,7 +102,7 @@ Three conditional edges (all in `graph.py`):
 | `report_path`, `pdf_report_path`, `report_summary` | `str` | `report` |
 | `metadata` | `dict` | everyone (counters, retry bookkeeping, changed files) |
 
-All data models are Pydantic (`agents/common/models.py`): `Requirement`, `RequirementStep`, `TestResult`, `TestCaseResult`, `RegressionDiff`, `ApiValidationResult`, `LogIssue`, `CoverageCandidate`, `CoverageGap`, `AutofixSuggestion`, `V8CoverageSummary`, `PipelineReport`.
+All data models are Pydantic (`agents/common/models.py`): `Requirement`, `RequirementStep`, `TestResult`, `TestCaseResult`, `RegressionDiff`, `ApiValidationResult`, `LogIssue`, `CoverageCandidate`, `CoverageGap`, `AutofixSuggestion`, `V8CoverageSummary`, `PipelineReport`, `RequirementEntities`, `ModelDependency`.
 
 ---
 
@@ -111,6 +113,7 @@ Every AI-powered stage degrades gracefully so the pipeline works with **no API k
 | Stage | With LLM | Without LLM (or on LLM error) |
 |-------|----------|-------------------------------|
 | Parse | `prompts/parser.md` → JSON requirements | Regex rule parser over `## Acceptance Criteria` sections |
+| Requirement entities | `prompts/requirement_entities.md` → models/flows/typed deps | Capitalized-word + “depends on” heuristic |
 | Generate | `prompts/generator.md` → full TypeScript | Jinja2 template `templates/test.spec.ts.j2` |
 | Analyze | `prompts/analyzer.md` + artifact context | Stub summary echoing Playwright errors |
 | Autofix | JSON selector suggestions | Generic role-based suggestion stub |
@@ -169,11 +172,37 @@ GitHub repo ──► download discovery files ──► extract candidates ─�
 
 ---
 
+## Test intelligence subsystem
+
+Suite brain for Mission Control and CI: classify flakes, quarantine them, select
+which tests a change should run, and open a failure studio for a red job. File-
+backed on purpose (`reports/quarantine.json`) — no `MissionControlStore` /
+`PostgresStore` schema change.
+
+- **Taxonomy** (`orchestrator/intelligence/classify.py`): deterministic
+  (no LLM) — `healthy` / `failing` / `flaky` / `selector` / `assertion` /
+  `infra` / `data` / `unknown`. Quarantine is recommended only after ≥3 runs
+  with a mixed pass/fail history.
+- **Quarantine** (`orchestrator/intelligence/quarantine.py`): TTL + owner +
+  release/expiry prune. Never heals assertions — quarantine is an explicit
+  operator action.
+- **Change-based select** (`orchestrator/intelligence/select.py`):
+  `git diff --name-only` + requirement-linked tests + quarantine drop; smoke
+  fallback on product-path changes; infra-only diffs do not enqueue a product
+  suite.
+- **Health / studio** (`health.py`, `studio.py`): overlay quarantine on
+  `history.test_health()`; join a job's cases with on-disk video/trace
+  presence and a classification.
+- **Surfaces**: `GET/POST/DELETE /api/v2/intel/*`, CLI `argus intel …`, job
+  kind `select_tests` (static, no engagement).
+
+---
+
 ## Entry points
 
 | Entry | File | Trigger |
 |-------|------|---------|
-| CLI `argus` | `orchestrator/cli.py` (Typer) | `test run`, `test exec`, `flow run`, `vision regression`, `guard misconfig-scan`, `serve` (grouped subcommands; legacy flat `zyvor-qa` alias still works) |
+| CLI `argus` | `orchestrator/cli.py` (Typer) | `test run`, `test exec`, `flow run`, `vision regression`, `guard misconfig-scan`, `intel health|select|quarantine-*`, `serve` (grouped subcommands; legacy flat `zyvor-qa` alias still works) |
 | Webhook server | `orchestrator/webhook.py` (FastAPI) | GitHub `push`, `pull_request`, `repository_dispatch: staging-deployed`; HMAC-verified via `GITHUB_WEBHOOK_SECRET`; `/health` for probes |
 | Slack slash command | `orchestrator/webhook.py` (`POST /webhook/slack/command`) | `/zyvor run <smoke\|full\|regression\|audit>` / `/zyvor status <job_id>` from chat, enqueued onto the same job queue as `POST /api/v2/jobs`. HMAC-verified via `SLACK_SIGNING_SECRET` (`orchestrator/security/slack.py`); dispatch logic in `orchestrator/slack_gateway.py`. One-way only — completion is still reported via the existing `SLACK_WEBHOOK_URL` notify channel, not a reply to the command. See [Tutorial 16](tutorials/16-slack-gateway.md). |
 | MCP server | `integrations/mcp/` (`argus-mcp`, optional `[mcp]` extra) | Exposes an allowlisted subset of `/api/v2` jobs as MCP tools (`run_job`, `run_smoke_test`, `run_site_audit`, `run_crawl_test`, `get_job_status`, `cancel_job`) for MCP-capable chat agents (e.g. Hermes Agent) to trigger and poll QA jobs from Telegram/Discord/Slack/CLI. Thin HTTP client of `/api/v2`, no `orchestrator.*` imports — deployable independently. Bearer-token auth via the same `orchestrator/security/rbac.py` scopes. See [`docs/mcp-server.md`](mcp-server.md). |
@@ -186,18 +215,28 @@ GitHub repo ──► download discovery files ──► extract candidates ─�
 ## Security testing
 
 Beyond the 10 read-only network/security probes and the `audit` site grade,
-seven job kinds do deeper, potentially-invasive security testing and are
-gated behind an authorized **security engagement**:
+deeper security and resilience job kinds are gated behind an authorized
+**security engagement** (and, for some kinds, independent opt-in flags):
 
 | Job kind | Tier | What it does |
 |----------|------|--------------|
-| `misconfig_scan` | `active_recon` | Tech/version fingerprinting, wordlist-driven path discovery (`agents/probes/data/misconfig_paths.txt`), security-header *value* grading, DNS hygiene (SPF/DMARC/CAA) — `agents/probes/misconfig_scan.py` |
+| `misconfig_scan` | `active_recon` | Tech/version fingerprinting, wordlist-driven path discovery, security-header *value* grading, DNS hygiene, plus compliance signals (`security.txt`, consent markers, PII patterns) — `agents/probes/misconfig_scan.py` |
 | `cve_lookup` | `active_recon` | Read-only: fingerprints tech/versions, checks them against OSV.dev — `agents/probes/cve_lookup.py`. No PoC is generated or run |
-| `llm_redteam` | `active_recon` | Attacker→judge loop against Ask Zyvor (curated battery, `agents/redteam/`) — prompt injection, system-prompt exfiltration, excessive agency, jailbreaks, PII/secret exfiltration |
+| `sca_scan` | `active_recon` (URL mode) | Client-side library/license fingerprinting and/or local-checkout `pip-audit`/`npm audit` — checkout mode needs no engagement |
+| `contract_verify` | `active_recon` | HAR-derived consumer contract verification against a live provider |
+| `llm_redteam` | `active_recon` | Attacker→judge loop against Ask Zyra (curated battery, `agents/redteam/`) — prompt injection, system-prompt exfiltration, excessive agency, jailbreaks, PII/secret exfiltration |
+| `db_assert` | `active_recon` | Read-only SELECT-only assertions against Postgres/MySQL/SQLite — also requires `ZYVOR_DB_TESTING_ENABLED`; DSN via `$secret` |
 | `exploit_poc` | `exploit` | Generates a non-destructive verification script via LLM for a described finding and runs it in a sandboxed Kubernetes Job (`orchestrator/security/sandbox.py`, `kubernetes/sandbox.yaml`) — never in-process. Also requires `ZYVOR_EXPLOIT_EXECUTION_ENABLED=true` |
 | `attack_chain` | `exploit` | Repeatedly plan-and-verifies one escalation step at a time (LLM planner + `exploit_poc`'s exact PoC-generation/sandbox machinery), stopping the moment a step fails or the planner has nothing safe left to propose (max 5 steps). Same gates as `exploit_poc` |
 | `host_pentest` | `exploit` | Non-destructive SSH enumeration (`paramiko`) via a specially-imaged sandbox (`ZYVOR_SANDBOX_HOST_IMAGE`). Also requires `ZYVOR_CREDENTIALED_PENTEST_ENABLED=true`; creds must be `$secret` refs |
 | `cloud_pentest` | `exploit` | Non-destructive `aws`/`gcloud`/`az` CLI enumeration via a specially-imaged sandbox (`ZYVOR_SANDBOX_CLOUD_IMAGE`). Same additional credentialed-pentest gate as `host_pentest` |
+| `chaos_inject` | `exploit` | Client-side egress fault injection while a flow/smoke control observes — also requires `ZYVOR_CHAOS_INJECTION_ENABLED` and per-run consent |
+| `chaos_webhook` | `exploit` | Trigger a user-owned chaos experiment webhook, then observe with the same resilience rubric |
+| `port_scan` | `active_recon` | Bounded TCP connect scan (≤64 common ports) — `agents/probes/port_scan.py` |
+| `tls_cipher_scan` | `active_recon` | TLS protocol + weak-cipher grading — `agents/probes/tls_cipher_scan.py` |
+| `dast_scan` / `injection_scan` / `csrf_probe` / `ssrf_probe` / `auth_attack_scan` / `idor_scan` | `exploit` | Bounded DAST / web-attack probes — also require `ZYVOR_DAST_SCAN_ENABLED=true`. Optional nuclei via `ZYVOR_DAST_NUCLEI_BIN`. See `docs/security-network-attack-gaps.md` |
+
+`api_contract_diff` (API panel) is pure static OpenAPI analysis and needs **no** engagement.
 
 **Engagement gating** (`orchestrator/security/engagement_policy.py`): an
 admin creates a target-scoped, tier-ranked attestation via
@@ -222,9 +261,10 @@ rather than falling back to unsandboxed execution. Per-Job network-egress
 restriction is attempted but best-effort — only enforced on
 NetworkPolicy-capable CNIs; see `kubernetes/sandbox.yaml`'s CNI caveat.
 
-Full design rationale — including what's still deliberately *not* built
-(attack chaining, credentialed host/cloud pentesting) and why — lives in
-`ROADMAP.md`.
+Full design rationale for the shipped engagement/sandbox model lives in
+`ROADMAP.md`. Remaining **network-attack / DAST** gaps (what is still
+deliberately deferred) are inventoried in
+[`docs/security-network-attack-gaps.md`](security-network-attack-gaps.md).
 
 ---
 
@@ -241,6 +281,9 @@ Directories the pipeline reads and writes (all relative to repo root):
 | `reports/qa-summary.html` / `.pdf` | Final report | `report` |
 | `reports/results.json` | Playwright JSON output | `execute` |
 | `reports/artifacts/` | Per-failure video/screenshot/trace | `execute` |
+| `reports/test-index.jsonl` | Per-test pass/fail index for Test health | `history.record_test_results` |
+| `reports/history/` | Run history for sparklines / trends | dashboard history |
+| `reports/quarantine.json` | Flake quarantine (TTL, owner, status) | `orchestrator/intelligence/quarantine` |
 | `reports/v8-coverage/` | Per-test V8 coverage JSON | Playwright fixture |
 | `reports/crawl-inventory.json` | Live crawl results | crawl script |
 | `screenshots/baselines/`, `current/`, `diffs/` | Visual regression images | `regression` |

@@ -1,16 +1,5 @@
-// Copyright 2026 ZyvorAI Labs Private Limited
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+// Copyright 2026 Zyvor AI Labs · https://zyvor.dev
+// SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
 
 //! Spawn `argus serve` as a child process and track its readiness.
 //!
@@ -33,7 +22,7 @@ const READY_TIMEOUT: Duration = Duration::from_secs(20);
 const POLL_INTERVAL: Duration = Duration::from_millis(150);
 
 pub enum ServerStatus {
-    Ready(u16),
+    Ready { url: String },
     Failed(String),
 }
 
@@ -148,17 +137,40 @@ fn spawn_serve(bin_override: Option<&str>) -> Result<(Child, u16), String> {
 /// borrowed `State<ServerState>` — a `State` reference can't cross a
 /// `thread::spawn` boundary, so the handle is captured instead and
 /// `.state::<ServerState>()` is re-derived fresh once inside the thread.
-pub fn start_in_background(app_handle: tauri::AppHandle, bin_override: Option<String>) {
+///
+/// When `remote_url` is set, skips spawning `argus serve` and reports that
+/// URL as ready (desktop shell against a lab/team Mission Control).
+pub fn start_in_background(
+    app_handle: tauri::AppHandle,
+    bin_override: Option<String>,
+    remote_url: Option<String>,
+) {
     thread::spawn(move || {
         use tauri::Manager;
         let state = app_handle.state::<ServerState>();
+        let remote = remote_url
+            .as_deref()
+            .map(str::trim)
+            .filter(|u| !u.is_empty())
+            .map(|u| u.to_string());
+        if let Some(url) = remote {
+            let normalized = if url.contains("/dashboard") {
+                url
+            } else {
+                format!("{}/dashboard", url.trim_end_matches('/'))
+            };
+            state.set_status(ServerStatus::Ready { url: normalized });
+            return;
+        }
         match spawn_serve(bin_override.as_deref()) {
             Ok((child, port)) => {
                 if wait_for_port(port, READY_TIMEOUT) {
                     if let Ok(mut guard) = state.handle.lock() {
                         *guard = Some(ServerHandle { child });
                     }
-                    state.set_status(ServerStatus::Ready(port));
+                    state.set_status(ServerStatus::Ready {
+                        url: format!("http://127.0.0.1:{port}/dashboard"),
+                    });
                 } else {
                     state.set_status(ServerStatus::Failed(format!(
                         "argus serve did not become ready on port {port} within {}s",
@@ -176,7 +188,7 @@ pub fn start_in_background(app_handle: tauri::AppHandle, bin_override: Option<St
 pub fn dashboard_url(state: &ServerState) -> Result<Option<String>, String> {
     match state.status.lock().map_err(|_| "server state poisoned")?.as_ref() {
         None => Ok(None),
-        Some(ServerStatus::Ready(port)) => Ok(Some(format!("http://127.0.0.1:{port}/dashboard"))),
+        Some(ServerStatus::Ready { url }) => Ok(Some(url.clone())),
         Some(ServerStatus::Failed(e)) => Err(e.clone()),
     }
 }

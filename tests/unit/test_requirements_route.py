@@ -1,17 +1,5 @@
-# Copyright 2026 ZyvorAI Labs Private Limited
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
+# Copyright 2026 Zyvor AI Labs · https://zyvor.dev
+# SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
 """HTTP-level tests for GET /api/v2/requirements{,/{id},/{id}/history} --
 the read-only surface for the durable, versioned requirement store.
 
@@ -94,3 +82,74 @@ def test_requirement_history_returns_every_version(tmp_path, monkeypatch):
     assert resp.status_code == 200
     versions = resp.json()["versions"]
     assert [v["version"] for v in versions] == [1, 2]
+
+
+def test_requirement_history_includes_linked_tests_per_version(tmp_path, monkeypatch):
+    store = MissionControlStore(tmp_path / "req.db")
+    store.upsert_requirement(
+        "req-login", source_type="document", origin_id="spec.md",
+        title="Login page loads", content={"description": "v1"},
+    )
+    store.link_requirement_test("req-login", "tests/e2e/login.spec.ts")
+    store.upsert_requirement(
+        "req-login", source_type="document", origin_id="spec.md",
+        title="Login page loads", content={"description": "v2"},
+    )
+    store.link_requirement_test("req-login", "tests/e2e/login-v2.spec.ts")
+    client = _client_with_store(monkeypatch, store)
+
+    versions = client.get("/api/v2/requirements/req-login/history").json()["versions"]
+    assert versions[0]["linked_tests"] == ["tests/e2e/login.spec.ts"]
+    assert versions[1]["linked_tests"] == ["tests/e2e/login-v2.spec.ts"]
+
+
+def test_impact_graph_groups_requirements_by_shared_data_model_and_flow(tmp_path, monkeypatch):
+    store = MissionControlStore(tmp_path / "req.db")
+    store.upsert_requirement(
+        "req-checkout", source_type="document", origin_id="specs/checkout.md",
+        title="Apply discount", content={"d": "checkout"},
+        data_models=["Order", "Payment"], flows=["Checkout"],
+    )
+    store.link_requirement_test("req-checkout", "tests/e2e/checkout.spec.ts")
+    store.upsert_requirement(
+        "req-orders", source_type="document", origin_id="specs/orders.md",
+        title="View past orders", content={"d": "orders"},
+        data_models=["Order"], flows=["Order history"],
+    )
+    client = _client_with_store(monkeypatch, store)
+
+    resp = client.get("/api/v2/requirements/impact-graph")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert set(body["data_models"]["Order"]) == {"req-checkout", "req-orders"}
+    assert body["flows"]["Checkout"]["tests"] == ["tests/e2e/checkout.spec.ts"]
+
+
+def test_impact_graph_route_registered_before_the_id_route(tmp_path, monkeypatch):
+    """`impact-graph` must not be swallowed by GET /requirements/{requirement_id}
+    -- a route-ordering regression would make this 404 instead of 200."""
+    store = MissionControlStore(tmp_path / "req.db")
+    client = _client_with_store(monkeypatch, store)
+
+    resp = client.get("/api/v2/requirements/impact-graph")
+    assert resp.status_code == 200
+    assert resp.json() == {
+        "data_models": {},
+        "flows": {},
+        "model_edges": [],
+        "model_dependencies": [],
+    }
+
+
+def test_get_requirement_includes_data_models_and_flows(tmp_path, monkeypatch):
+    store = MissionControlStore(tmp_path / "req.db")
+    store.upsert_requirement(
+        "req-checkout", source_type="document", origin_id="specs/checkout.md",
+        title="Apply discount", content={"d": "checkout"},
+        data_models=["Order"], flows=["Checkout"],
+    )
+    client = _client_with_store(monkeypatch, store)
+
+    body = client.get("/api/v2/requirements/req-checkout").json()
+    assert body["data_models"] == ["Order"]
+    assert body["flows"] == ["Checkout"]

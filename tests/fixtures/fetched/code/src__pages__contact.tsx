@@ -1,6 +1,5 @@
-// Copyright (c) 2026 ZyvorAI Labs Private Limited. All rights reserved.
-// Proprietary software — see LICENSE in the repository root.
-// https://zyvor.dev · info@zyvor.dev
+// Copyright 2026 Zyvor AI Labs · https://zyvor.dev
+// SPDX-License-Identifier: Apache-2.0
 
 import {useEffect, useMemo, useRef, useState} from 'react';
 import type {ReactNode} from 'react';
@@ -78,7 +77,7 @@ const intentConfig: Record<string, ContactIntentConfig> = {
     asideBullets: [
       'VMware licensing vs HyperSDK Platform TCO model for your VM count',
       'Public-cloud run-rate comparison for steady-state workloads',
-      'Typical payback window from recent customer programs',
+      'Typical payback window from recent user programs',
     ],
     submitLabel: 'Get savings estimate',
     messagePlaceholder: 'Approximate VM count, current VMware/cloud spend, and goals…',

@@ -1,17 +1,5 @@
-# Copyright 2026 ZyvorAI Labs Private Limited
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
+# Copyright 2026 Zyvor AI Labs · https://zyvor.dev
+# SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
 """Unit tests for orchestrator/dashboard/activity.py's in-memory activity
 feeds. Previously only record_job was exercised incidentally elsewhere --
 record_webhook, recent, and last_webhook had no direct coverage."""
@@ -42,11 +30,11 @@ def test_record_job_truncates_brief_and_rounds_duration():
 
 
 def test_record_webhook_truncates_detail():
-    activity.record_webhook("push", "hypersdk/zyvor-argus", detail="y" * 200)
+    activity.record_webhook("push", "zyvorai/argus", detail="y" * 200)
     (entry,) = activity._webhooks
     assert entry["type"] == "webhook"
     assert entry["event"] == "push"
-    assert entry["repo"] == "hypersdk/zyvor-argus"
+    assert entry["repo"] == "zyvorai/argus"
     assert len(entry["detail"]) == 120
 
 
