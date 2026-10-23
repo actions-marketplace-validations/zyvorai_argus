@@ -6,6 +6,9 @@
 CVE-2026-14257  # brace-expansion (npm-bundled) — fixed only in npm 12+ (Node >=22)
 CVE-2026-69152  # brace-expansion (npm-bundled) — fixed only in npm 12+ (Node >=22)
 CVE-2026-69192  # ip-address (npm-bundled, via socks) — no Node-20-compatible npm fix yet
+CVE-2026-102276  # brace-expansion (npm-bundled) — fixed only in npm 12+ (Node >=22)
+CVE-2026-102278  # brace-expansion (npm-bundled) — fixed only in npm 12+ (Node >=22)
+CVE-2026-19534  # undici (npm-bundled) — no Node-20-compatible npm fix yet
 CVE-2026-73566  # tar (npm-bundled) — fixed only in npm 12+ (Node >=22); confirmed via usr/local/lib/node_modules/npm/node_modules/tar
 
 # msgpack (GHSA-6v7p-g79w-8964) and setuptools (CVE-2025-47273) are pinned past
@@ -17,3 +20,9 @@ CVE-2026-73566  # tar (npm-bundled) — fixed only in npm 12+ (Node >=22); confi
 # the actual second copy (or confirm this is a trivy scan-cache artifact).
 GHSA-6v7p-g79w-8964
 CVE-2025-47273
+
+# urllib3 2.7.0 reported in the image is the copy vendored inside pip itself
+# (pip/_vendor/urllib3), not a project dependency: pyproject.toml floors the
+# real package at >=2.8.0. Remove once a pip release vendors urllib3 >=2.8.0.
+CVE-2026-97687
+CVE-2026-97689

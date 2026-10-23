@@ -9,7 +9,7 @@ version = "0.9.2"
 description = "AI-first autonomous testing, security, and requirements-quality platform"
 readme = "README.md"
 license = "LicenseRef-Zyvor-Production-1.0"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
     "langgraph>=1.2",
     "langchain>=1.4",
@@ -27,7 +27,7 @@ dependencies = [
     "Jinja2>=3.1",
     "python-dotenv>=1.2",
     "httpx>=0.27",
-    "Pillow>=10.0",
+    "Pillow>=13.0.0",
     "PyYAML>=6.0",
     "kubernetes>=29.0",
     # Transitive floors bumped past known CVEs (pip-audit/trivy): PYSEC-2026-3545/6/7,
@@ -35,6 +35,7 @@ dependencies = [
     "aiohttp>=3.14.3",
     "cryptography>=50.0.1",
     "msgpack>=1.2.2",
+    "urllib3>=2.8.0",  # CVE-2026-97687/97689 (container-scan)
 ]
 
 [project.optional-dependencies]
@@ -44,14 +45,20 @@ dev = [
     "types-PyYAML",
 ]
 knowledge = [
-    "langchain==1.4.2",
-    "langchain-openai==1.6.6",
-    "langchain-qdrant[fastembed]==1.1.0",
+    "langchain==1.4.6",
+    "langchain-openai==1.7.2",
+    "langchain-qdrant==1.1.0",
     "langchain-text-splitters>=1.0.0,<2.0.0",
     "qdrant-client>=1.15.1,<2.0.0",
     "langgraph-checkpoint-sqlite>=2.0,<4.0",
     "pypdf>=5.0.0,<7.0.0",
     "orjson>=3.10.0,<4.0.0",
+]
+# Local embeddings + BM25 sparse vectors for hybrid retrieval. Split out because
+# fastembed pins pillow<13, which cannot resolve against the Pillow>=13 core
+# floor (35 CVEs fixed in 13.0.0). Installing this extra downgrades Pillow.
+fastembed = [
+    "langchain-qdrant[fastembed]==1.1.0",
 ]
 mcp = [
     # Pinned below 2.0 — that major restructured mcp.server.fastmcp (module
@@ -104,7 +111,7 @@ addopts = "-q"
 
 [tool.ruff]
 line-length = 100
-target-version = "py310"
+target-version = "py311"
 
 [tool.ruff.lint]
 # Pinned explicitly so a ruff upgrade can't silently widen enforcement — ruff's
