@@ -150,7 +150,7 @@ docker run --rm -p 8080:8080 --env-file .env ghcr.io/zyvorai/zyvor-argus:v0.9.2 
 | Track | Where |
 | --- | --- |
 | **Non-production use** (free under the Zyvor Production License) | This repo |
-| **Production / commercial license** | [https://zyvor.dev](https://zyvor.dev/?utm_source=github&utm_medium=argus&utm_campaign=readme_edition) |
+| **Production / commercial license** | [https://zyvor.dev](https://zyvor.dev/?utm_source=github&utm_medium=argus&utm_campaign=readme_edition) · [Buy Professional (1 year)](https://rzp.io/rzp/emJ1Pij) |
 | **Docs** | [Tutorials](docs/tutorials/README.md) · [zyvor.dev/docs](https://zyvor.dev/docs?utm_source=github&utm_medium=argus&utm_campaign=readme_suite) |
 
 More: [user manual](docs/user/README.md) · [feature guide](docs/zyvor-argus-user-feature-guide.md) · [configuration](docs/configuration.md) · [remote deploy](docs/remote-deploy.md) · [enterprise overlay](docs/enterprise-v2.md).
