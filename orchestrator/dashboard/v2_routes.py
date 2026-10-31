@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import os
 import uuid
 from typing import Any
 
@@ -40,6 +41,7 @@ async def enqueue_job(request: Request, payload: dict[str, Any] = Body(...)) -> 
             requested_by=identity.subject,
             idempotency_key=request.headers.get("idempotency-key") or payload.get("idempotency_key"),
             priority=max(1, min(int(payload.get("priority") or 100), 1000)),
+            callback_url=str(payload["callback_url"]) if payload.get("callback_url") else None,
         )
     except (ValueError, TargetPolicyError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -105,11 +107,16 @@ async def get_job_artifact(request: Request, job_id: str, href: str = Query(...)
 
     from orchestrator.dashboard.jobs import _repo_root
 
-    reports_root = (_repo_root() / "reports").resolve()
-    file_path = (_repo_root() / href.lstrip("/")).resolve()
-    if reports_root not in file_path.parents:
+    reports_root = os.path.realpath(str(_repo_root() / "reports"))
+    # href is allow-listed against the job result above; still contain the
+    # joined path under reports/ (normalise, then prefix-check).
+    rel = href.lstrip("/")
+    if rel.startswith("reports/"):
+        rel = rel[len("reports/") :]
+    file_path = os.path.realpath(os.path.join(reports_root, rel))
+    if not file_path.startswith(reports_root + os.sep):
         raise HTTPException(status_code=400, detail="invalid artifact path")
-    if not file_path.is_file():
+    if not os.path.isfile(file_path):
         raise HTTPException(status_code=404, detail="artifact file no longer on disk")
     return FileResponse(file_path)
 

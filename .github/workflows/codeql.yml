@@ -27,11 +27,12 @@ jobs:
         language: ['python', 'javascript-typescript']
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: github/codeql-action/init@v3
         with:
           languages: ${{ matrix.language }}
+          config-file: ./.github/codeql/codeql-config.yml
 
       - uses: github/codeql-action/autobuild@v3
 

@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Zyvor Argus",
-  "version": "0.1.0",
+  "version": "0.1.4",
   "identifier": "dev.zyvor.argus.desktop",
   "build": {
     "frontendDist": "../public"
@@ -19,7 +19,8 @@
         "resizable": true,
         "decorations": true,
         "titleBarStyle": "Overlay",
-        "transparent": false
+        "transparent": false,
+        "backgroundColor": "#0c0d12"
       }
     ],
     "security": {
@@ -39,6 +40,7 @@
     "category": "DeveloperTool",
     "shortDescription": "Native desktop shell for the Zyvor Argus Mission Control dashboard",
     "longDescription": "Zyvor Argus Desktop wraps `argus serve` in a native macOS window — no browser tab needed. All test execution, reporting, and dashboard functionality is unchanged; this is a thin shell, not a reimplementation.",
+    "resources": { "stage/argus": "argus", "stage/node": "node" },
     "macOS": {
       "minimumSystemVersion": "11.0"
     }

@@ -1,16 +1,5 @@
-# Copyright 2026 ZyvorAI Labs Private Limited
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# Copyright 2026 Zyvor AI Labs · https://zyvor.dev
+# SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
 
 """TLS protocol / cipher-suite grading beyond basic cert metadata.
 
@@ -37,7 +26,9 @@ _PROTOCOLS: tuple[tuple[str, ssl.TLSVersion | None], ...] = (
 
 
 def _try_connect(host: str, port: int, *, min_v: ssl.TLSVersion | None, max_v: ssl.TLSVersion | None) -> dict[str, Any]:
-    ctx = ssl.create_default_context()
+    # Intentional: this probe enumerates whether the target still offers legacy
+    # TLS (TLSv1/1.1). Restricting to TLSv1.2+ would defeat the check.
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)  # codeql[py/insecure-protocol]
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
     if min_v is not None:

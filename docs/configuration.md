@@ -124,8 +124,22 @@ Consumed by: `orchestrator/nodes/analyze.py`, `orchestrator/nodes/report.py`, `a
 | `ENABLE_AUTOFIX_APPLY` | `false` | Actually patch spec files and re-run failed tests |
 | `AUTOFIX_MAX_RETRIES` | `2` | Max apply→re-execute loops per run |
 | `SKILLS_PATH` | `.zyvor-argus/skills.json` | Skill store — confirmed autofix repairs are recorded here and reused on future runs before falling back to an LLM suggestion |
+| `ENABLE_HEAL_PR` | `false` | When a patched spec re-runs green, open a **draft** pull request with the repair (see below) |
+| `ARGUS_HEAL_PR_REPO` | _(auto)_ | `owner/name` to open the PR in. Falls back to `GITHUB_REPOSITORY`, then the `origin` remote |
+| `ARGUS_HEAL_PR_BASE` | _(default branch)_ | Branch the PR targets |
 
-Consumed by: `orchestrator/graph.py`, `orchestrator/nodes/autofix.py`, `orchestrator/nodes/apply_autofix.py`, `orchestrator/nodes/learn_skills.py`, `agents/skills/store.py`.
+**Heal-PRs.** With `ENABLE_AUTOFIX_APPLY` and `ENABLE_HEAL_PR` both on, a repair that made the failed tests pass
+is proposed back to the repository instead of living only in the runner's working tree. Argus creates the branch
+`argus/heal-<run id>-<hash>` and commits the patched specs through the GitHub API (nothing is checked out or pushed
+from your clone), then opens a draft PR whose table lists each test, old and new locator, and Argus's reason.
+Only files that already exist on the base branch and really differ are committed, so patched files under the
+git-ignored `tests/generated/` are skipped. The token (`GITHUB_TOKEN` or `gh auth`) needs write access to contents
+and pull requests; use a fine-grained token limited to the one repository. A failure to open the PR never fails the
+run: it is recorded in the run's `metadata["heal_pr_error"]` and in the audit log (`heal_pr.create`), and the PR
+URL in `metadata["heal_pr_url"]`. Selectors are swapped by text match (first occurrence), which is why the PR is
+a draft: a human confirms the new locator targets the same element.
+
+Consumed by: `orchestrator/graph.py`, `orchestrator/nodes/autofix.py`, `orchestrator/nodes/apply_autofix.py`, `orchestrator/nodes/learn_skills.py`, `orchestrator/nodes/heal_pr.py`, `agents/autofix/heal_pr.py`, `agents/skills/store.py`.
 
 ---
 
@@ -178,6 +192,36 @@ Consumed by: `agents/discover/crawl.py`, `playwright/scripts/crawl-site.mjs`, `p
 
 ---
 
+## Job completion callbacks
+
+`POST /api/v2/jobs` accepts an optional `"callback_url"`. When that job finishes (succeeded,
+failed or cancelled) Argus POSTs a small notice to it, so a chat agent or CI system is pushed the
+result instead of polling. Off by default.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `ZYVOR_CALLBACKS_ENABLED` | `false` | Master switch. While off, a request with `callback_url` is rejected with 400. |
+| `ZYVOR_CALLBACK_ALLOWLIST` | _(empty)_ | Comma-separated hosts a callback may target (`fnmatch` patterns). `hooks.slack.com` is always allowed. This is separate from `ZYVOR_TARGET_ALLOWLIST`. |
+| `ZYVOR_CALLBACK_SECRET` | _(unset)_ | HMAC key. Required for every non-Slack destination. |
+| `ZYVOR_CALLBACK_ALLOWED_PORTS` | `443` | Allowed destination ports. |
+| `ZYVOR_CALLBACK_ALLOW_HTTP` | `false` | Allow plain `http://` (ignored when `ZYVOR_ENV=production`). |
+| `ZYVOR_CALLBACK_ALLOW_PRIVATE` | `false` | Allow private/loopback addresses (lab use only). |
+| `ZYVOR_PUBLIC_URL` | _(unset)_ | If set, the notice includes `link` to `/api/v2/jobs/{id}`. |
+
+Body (JSON): `{"event": "job.finished", "job_id", "kind", "status", "duration_s", "link"}`. It never
+contains the job's params, result or error text. Slack webhooks get a `{"text": ...}` message instead.
+
+Verify a notice by recomputing `sha256=` + HMAC-SHA256(`ZYVOR_CALLBACK_SECRET`, `"<X-Zyvor-Timestamp>." + raw body`)
+and comparing it, in constant time, with `X-Zyvor-Signature`; reject timestamps that are too old.
+
+Behaviour worth knowing: the URL is checked when the job is enqueued and again just before each
+send; redirects are not followed; 5xx/429/network errors are retried (3 attempts, 1s then 4s);
+a 4xx is not. The connection is not pinned to the validated IP, so a DNS-rebinding race in that
+short window is narrowed, not eliminated: keep the allowlist to hosts you control. The URL is stored
+in its own column and is never returned by the API or written to the audit log (it can hold a token);
+`job.callback` audit rows record only the host and the result. Callbacks cover jobs enqueued through
+`/api/v2` (the durable queue), not jobs started directly from the dashboard buttons.
+
 ## Mission Control dashboard
 
 | Variable | Default | Description |
@@ -204,7 +248,7 @@ Consumed by: `agents/discover/crawl.py`, `playwright/scripts/crawl-site.mjs`, `p
 
 ### Knowledge RAG (optional Ask Zyra)
 
-Requires Python **3.11 or 3.12**, `pip install -e ".[knowledge]"`, and a running Qdrant. Mission Control shows **Ask Zyra**; API clients use `POST /v1/qa`.
+Requires Python **3.11 or 3.12**, `pip install -e ".[knowledge,fastembed]"` (the `fastembed` extra supplies BM25 sparse vectors for hybrid retrieval and local embeddings, and pins Pillow below 13), and a running Qdrant. Mission Control shows **Ask Zyra**; API clients use `POST /v1/qa`.
 
 | Variable | Default | Description |
 |----------|---------|-------------|

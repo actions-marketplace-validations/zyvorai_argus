@@ -26,6 +26,16 @@
 3. [Live data](pages/api/dashboard-actions-realtime.md) for WebSocket / SSE
 4. Reuse the session on [Flow test](pages/journeys/dashboard-actions-flow.md)
 
+## Test a CRM (HubSpot / Pipedrive / Zoho / Salesforce)
+
+Hands-on: [Tutorial 19 — Test a CRM (UI-first)](../tutorials/19-crm-golden-paths.md).
+
+1. Pick a pack under [Test a CRM](../crm/README.md) — HubSpot, Pipedrive, Zoho, or Salesforce Sales Cloud
+2. [Auth & session](pages/api/dashboard-actions-auth.md) against your sandbox (**password login**, MFA off). Zoho/Salesforce packs are **UI-first** — no API token required.
+3. [Flow test](pages/journeys/dashboard-actions-flow.md) with the pack’s `.steps` + saved session
+4. Optional: [API contract](pages/api/dashboard-actions-api-contract.md) with the pack’s `.workflow.json` if you have a token
+5. Optional: [Route sweep](pages/visual/dashboard-actions-route-sweep.md) using the pack’s routes list
+
 ## Visual confidence
 
 1. [Route sweep](pages/visual/dashboard-actions-route-sweep.md) or [Visual regression](pages/visual/dashboard-actions-regression.md)
@@ -37,11 +47,13 @@
 1. Configure the card once (e.g. audit URL or flow steps)
 2. [Schedules](pages/operations/dashboard-schedules.md) → pick kind + interval
 
-## Related
+# Related
 
 - [Getting Started](getting-started.md)
 - [Using the Dashboard](using-the-dashboard.md)
 - [Page index](PAGE_INDEX.md)
+- [Test a CRM](../crm/README.md) — HubSpot, Pipedrive, Zoho, Salesforce packs
+- [Tutorial 19 — CRM UI-first](../tutorials/19-crm-golden-paths.md)
 
 ## Operate from the console (UX)
 

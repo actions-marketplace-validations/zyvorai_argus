@@ -1,7 +1,8 @@
 {
   "name": "zyvor-argus-desktop",
   "private": true,
-  "version": "0.1.0",
+  "license": "SEE LICENSE IN ../LICENSE",
+  "version": "0.1.4",
   "description": "Zyvor Argus desktop UI — npm CLI launcher for the Tauri app",
   "type": "module",
   "bin": {
@@ -20,6 +21,6 @@
     "start": "zyvor-argus-desktop dev"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2.2.0"
+    "@tauri-apps/cli": "^2.12.3"
   }
 }

@@ -21,7 +21,7 @@ GitHub (specs, issues, PRs, deploy events)          Natural language (CLI)
 │      ├─ log_analyze ─┤                                               │
 │      └─ v8_coverage ─┘                                               │
 │                                                                       │
-│         pass → learn_skills → report → notify                        │
+│         pass → learn_skills → heal_pr → report → notify              │
 │         fail → analyze → autofix → apply_autofix ─┐                  │
 │                       ▲                            │                 │
 │                       └── re-execute (≤ retries) ◄──┘                │
@@ -66,6 +66,7 @@ Defined in [`orchestrator/graph.py`](../orchestrator/graph.py) as a LangGraph `S
 | `autofix` | `nodes/autofix.py` | When `ENABLE_AUTOFIX=true`: checks the [skill store](../agents/autofix/README.md) for a previously-confirmed fix per failed case first, then falls back to an LLM suggestion (`AutofixSuggestion`) for unmatched cases. |
 | `apply_autofix` | `nodes/apply_autofix.py` | When `ENABLE_AUTOFIX_APPLY=true`: patches spec files in place and loops back to `execute` (bounded by `AUTOFIX_MAX_RETRIES`). |
 | `learn_skills` | `nodes/learn_skills.py` | If a patched retry passed, records the applied fix(es) into the skill store (`agents/skills/store.py`) for reuse in future runs. No-op otherwise. |
+| `heal_pr` | `nodes/heal_pr.py` | When `ENABLE_HEAL_PR=true` and a patched retry passed: opens a draft PR with the confirmed repair via the GitHub API. Never fails the run. |
 | `report` | `nodes/report.py` | Renders `reports/qa-summary.html` (Jinja2), optional PDF via headless Chromium, optional LLM plain-English summary. |
 | `notify` | `nodes/notify.py` | Delivers to every configured channel: GitHub PR comment, Slack, Teams, email. |
 
@@ -226,6 +227,7 @@ deeper security and resilience job kinds are gated behind an authorized
 | `contract_verify` | `active_recon` | HAR-derived consumer contract verification against a live provider |
 | `llm_redteam` | `active_recon` | Attacker→judge loop against Ask Zyra (curated battery, `agents/redteam/`) — prompt injection, system-prompt exfiltration, excessive agency, jailbreaks, PII/secret exfiltration |
 | `db_assert` | `active_recon` | Read-only SELECT-only assertions against Postgres/MySQL/SQLite — also requires `ZYVOR_DB_TESTING_ENABLED`; DSN via `$secret` |
+| `db_migration_check` | `active_recon` | Read-only suite of SELECT checks around a database migration: run `phase: pre`, apply the migration with your own tooling, run `phase: post` with `baseline_job_id`. Fails on a broken invariant, a changed column set, or changed data in a check marked `stable`; keeps only row counts, columns and result digests. Same `ZYVOR_DB_TESTING_ENABLED` gate and `$secret` DSN as `db_assert` |
 | `exploit_poc` | `exploit` | Generates a non-destructive verification script via LLM for a described finding and runs it in a sandboxed Kubernetes Job (`orchestrator/security/sandbox.py`, `kubernetes/sandbox.yaml`) — never in-process. Also requires `ZYVOR_EXPLOIT_EXECUTION_ENABLED=true` |
 | `attack_chain` | `exploit` | Repeatedly plan-and-verifies one escalation step at a time (LLM planner + `exploit_poc`'s exact PoC-generation/sandbox machinery), stopping the moment a step fails or the planner has nothing safe left to propose (max 5 steps). Same gates as `exploit_poc` |
 | `host_pentest` | `exploit` | Non-destructive SSH enumeration (`paramiko`) via a specially-imaged sandbox (`ZYVOR_SANDBOX_HOST_IMAGE`). Also requires `ZYVOR_CREDENTIALED_PENTEST_ENABLED=true`; creds must be `$secret` refs |

@@ -1,16 +1,5 @@
-# Copyright 2026 ZyvorAI Labs Private Limited
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# Copyright 2026 Zyvor AI Labs · https://zyvor.dev
+# SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
 
 """Engagement-gated DAST aggregator — built-in templates (+ optional nuclei).
 
@@ -41,13 +30,27 @@ def _open_redirect_check(url: str, *, insecure: bool, log: Log) -> list[dict[str
         "next", "url", "redirect", "redirect_uri", "return", "return_to", "continue", "dest", "destination",
     }] or ["next", "redirect", "url"]
     canary = "https://example.com/argus-open-redirect"
+    canary_host = "example.com"
+
+    def _redirects_to_canary(loc: str) -> bool:
+        if canary in loc:
+            return True
+        # Protocol-relative or absolute Location → compare hostname, not prefix.
+        candidate = loc
+        if loc.startswith("//"):
+            candidate = "https:" + loc
+        elif "://" not in loc:
+            return False
+        host = (urlparse(candidate).hostname or "").lower()
+        return host == canary_host
+
     with client(insecure=insecure) as c:
         for param in redirect_params[:4]:
             target = with_query(url, {param: canary})
             try:
                 r = c.get(target, follow_redirects=False)
                 loc = r.headers.get("location") or ""
-                if canary in loc or loc.startswith("//example.com"):
+                if _redirects_to_canary(loc):
                     findings.append({
                         "severity": "high",
                         "category": "open-redirect",

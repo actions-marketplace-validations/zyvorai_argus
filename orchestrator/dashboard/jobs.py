@@ -10,14 +10,20 @@ Kinds mirror the CLI:
   create      argus test create "description" [--execute]
   regression  argus vision regression [--update-baselines]
 
-One job at a time; runs on a daemon thread; kind-specific `result` payloads.
+One job at a time by default; runs on a daemon thread; kind-specific `result`
+payloads. Set ZYVOR_JOBS_MAX_CONCURRENT > 1 to let jobs of the concurrency-safe
+kinds (CONCURRENT_SAFE_KINDS: HTTP probes, ping, tls, port/cipher scans — no
+Playwright, no shared files) run next to the running job, each with its own
+progress log and cancel flag. Everything else still serializes.
 """
 
 from __future__ import annotations
 
+import contextvars
 import os
 import re
 import threading
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Optional
@@ -33,7 +39,7 @@ VALID_KINDS = {
     "api_contract", "api_contract_diff", "contract_verify", "auth_test", "realtime", "vitals", "ai_flow",
     "har_replay", "import_codegen",
     "misconfig_scan", "cve_lookup", "sca_scan", "llm_redteam", "exploit_poc", "attack_chain",
-    "host_pentest", "cloud_pentest", "db_assert", "chaos_inject", "chaos_webhook",
+    "host_pentest", "cloud_pentest", "db_assert", "db_migration_check", "chaos_inject", "chaos_webhook",
     "port_scan", "tls_cipher_scan",
     "dast_scan", "injection_scan", "csrf_probe", "ssrf_probe",
     "auth_attack_scan", "idor_scan",
@@ -50,6 +56,7 @@ ELEVATED_RISK_KINDS: dict[str, str] = {
     "sca_scan": "active_recon",
     "contract_verify": "active_recon",
     "db_assert": "active_recon",
+    "db_migration_check": "active_recon",
     "llm_redteam": "active_recon",
     "port_scan": "active_recon",
     "tls_cipher_scan": "active_recon",
@@ -81,12 +88,18 @@ DAST_KINDS = frozenset({
     "auth_attack_scan", "idor_scan",
 })
 
+# Kinds that share nothing with other jobs: no Playwright runner (which keeps a
+# single process handle), no report/test output files, no live-case list.
+CONCURRENT_SAFE_KINDS = frozenset(PROBE_KINDS | {"ping", "tls", "port_scan", "tls_cipher_scan"})
+_MAX_FINISHED_SIDE_JOBS = 20
+
 _lock = threading.Lock()
 _cancel = threading.Event()
 _progress: list[str] = []
 _live_cases: list[dict[str, Any]] = []
 _state: dict[str, Any] = {
     "running": False,
+    "job_id": None,
     "kind": None,
     "params": {},
     "started_at": None,
@@ -98,6 +111,55 @@ _state: dict[str, Any] = {
 
 class JobCancelled(Exception):
     pass
+
+
+class _SideJob:
+    """A concurrent job that runs beside the legacy single slot. It owns its
+    progress log and cancel flag; the slot job keeps using the module globals."""
+
+    def __init__(self, kind: str, params: dict[str, Any]) -> None:
+        self.job_id = uuid.uuid4().hex[:12]
+        self.kind = kind
+        self.params = params
+        self.running = True
+        self.started_at = _now()
+        self.finished_at: Optional[str] = None
+        self.result: Optional[dict[str, Any]] = None
+        self.error: Optional[str] = None
+        self.cancel = threading.Event()
+        self.progress: list[str] = []
+
+    def snapshot(self) -> dict[str, Any]:
+        with _lock:
+            return {
+                "job_id": self.job_id,
+                "running": self.running,
+                "kind": self.kind,
+                "params": _redact_params(self.params),
+                "started_at": self.started_at,
+                "finished_at": self.finished_at,
+                "result": self.result,
+                "error": self.error,
+                "progress": self.progress[-80:],
+                "live_cases": [],
+                "live_tally": {"passed": 0, "failed": 0},
+                "concurrent": True,
+            }
+
+
+# Set inside a side job's thread so log_progress/_check_cancel reach that job.
+# None means the legacy slot (and the CLI, which calls _job_* directly).
+_ctx_job: contextvars.ContextVar[Optional[_SideJob]] = contextvars.ContextVar("argus_job", default=None)
+_side_jobs: dict[str, _SideJob] = {}
+_slot_history: dict[str, dict[str, Any]] = {}  # final views of finished slot jobs, by job_id
+
+
+def max_concurrent() -> int:
+    """How many jobs may run at once (ZYVOR_JOBS_MAX_CONCURRENT, default 1)."""
+    try:
+        return max(1, min(16, int(os.environ.get("ZYVOR_JOBS_MAX_CONCURRENT", "1"))))
+    except ValueError:
+        return 1
 
 
 def _repo_root() -> Path:
@@ -115,13 +177,33 @@ def log_progress(message: str) -> None:
     from orchestrator.security.redaction import redact_text
     message = redact_text(message)
     stamp = datetime.now(timezone.utc).strftime("%H:%M:%S")
+    side = _ctx_job.get()
     with _lock:
-        _progress.append(f"[{stamp}] {message}")
-        del _progress[:-200]
+        target = side.progress if side is not None else _progress
+        target.append(f"[{stamp}] {message}")
+        del target[:-200]
+
+
+def current_logger() -> Callable[[str], None]:
+    """A log function bound to the calling job, safe to hand to child threads
+    (a ContextVar does not follow threads started by the job)."""
+    side = _ctx_job.get()
+    if side is None:
+        return log_progress
+
+    def _log(message: str) -> None:
+        token = _ctx_job.set(side)
+        try:
+            log_progress(message)
+        finally:
+            _ctx_job.reset(token)
+
+    return _log
 
 
 def _check_cancel() -> None:
-    if _cancel.is_set():
+    side = _ctx_job.get()
+    if (side.cancel if side is not None else _cancel).is_set():
         raise JobCancelled("cancelled by user")
 
 
@@ -166,8 +248,27 @@ def _stream_line_audit(line: str) -> None:
         )
 
 
-def cancel() -> dict[str, Any]:
-    """Request cancellation of the running job (kills an in-flight Playwright run)."""
+def cancel(job_id: str | None = None) -> dict[str, Any]:
+    """Request cancellation of the running job (kills an in-flight Playwright run).
+
+    With a job_id that belongs to a concurrent job, only that job is cancelled and
+    the Playwright process is left alone (it belongs to the slot job)."""
+    if job_id is not None:
+        with _lock:
+            side = _side_jobs.get(job_id)
+            is_slot = _state.get("job_id") == job_id
+        if side is not None:
+            if side.running:
+                side.cancel.set()
+                token = _ctx_job.set(side)
+                try:
+                    log_progress("⏹ cancellation requested…")
+                finally:
+                    _ctx_job.reset(token)
+            return side.snapshot()
+        if not is_slot:
+            # Unknown or already-finished job: never fall through to the slot job.
+            return status(job_id)
     with _lock:
         running = _state["running"]
     if running:
@@ -189,29 +290,101 @@ def _redact_params(params: Any) -> Any:
     return redact(params)
 
 
-def status() -> dict[str, Any]:
-    with _lock:
-        state = dict(_state)
-        state["params"] = _redact_params(state.get("params"))
-        state["progress"] = _progress[-80:]
-        state["live_cases"] = list(_live_cases)
-        state["live_tally"] = {
-            "passed": sum(1 for c in _live_cases if c["status"] == "passed"),
-            "failed": sum(1 for c in _live_cases if c["status"] != "passed"),
-        }
+def _slot_view() -> dict[str, Any]:
+    """The legacy slot job as a status dict. Caller holds _lock."""
+    state = dict(_state)
+    state["params"] = _redact_params(state.get("params"))
+    state["progress"] = _progress[-80:]
+    state["live_cases"] = list(_live_cases)
+    state["live_tally"] = {
+        "passed": sum(1 for c in _live_cases if c["status"] == "passed"),
+        "failed": sum(1 for c in _live_cases if c["status"] != "passed"),
+    }
     return state
+
+
+def status(job_id: str | None = None) -> dict[str, Any]:
+    """Status of the slot job, or of the job with this job_id (slot, concurrent or
+    a recently finished slot job)."""
+    if job_id is not None:
+        with _lock:
+            side = _side_jobs.get(job_id)
+            if side is None and _state.get("job_id") != job_id:
+                return dict(_slot_history.get(job_id) or {
+                    "job_id": job_id, "running": False, "kind": None, "result": None,
+                    "error": "unknown job", "progress": [], "live_cases": [],
+                    "live_tally": {"passed": 0, "failed": 0},
+                })
+        if side is not None:
+            return side.snapshot()
+    with _lock:
+        return _slot_view()
 
 
 def _safe_local_spec(spec: str) -> str:
     """Resolve a local spec path strictly inside the repo — the trigger is
     network-reachable and must not read arbitrary host files."""
-    root = _repo_root().resolve()
-    candidate = (root / spec).resolve() if not os.path.isabs(spec) else Path(spec).resolve()
-    if not str(candidate).startswith(str(root) + os.sep):
+    root = os.path.realpath(str(_repo_root()))
+    fullpath = os.path.realpath(os.path.join(root, spec))
+    if not fullpath.startswith(root + os.sep):
         raise ValueError("spec path must be inside the repository")
-    if not candidate.is_file():
+    if not os.path.isfile(fullpath):
         raise ValueError(f"spec not found: {spec}")
-    return str(candidate)
+    return fullpath
+
+
+def _validate_migration_check(params: dict[str, Any]) -> dict[str, Any]:
+    """Validation specific to db_migration_check (the db_assert gate, engine,
+    secret reference and target are checked by the shared block in
+    _validate). Every check query goes through the same SELECT-only guard as
+    db_assert -- this kind never runs the migration itself."""
+    from orchestrator.security.sql_guard import SqlGuardError, validate_select_only
+
+    phase = (params.get("phase") or "").strip().lower()
+    if phase not in ("pre", "post"):
+        raise ValueError("phase must be 'pre' (before the migration) or 'post' (after it)")
+    migration = (params.get("migration") or "").strip()
+    if not migration:
+        raise ValueError("migration is required — a label for the migration under test, e.g. '2026_10_add_orders_index'")
+
+    raw_checks = params.get("checks")
+    if not isinstance(raw_checks, list) or not raw_checks:
+        raise ValueError("checks must be a non-empty list of {name, query, assertion?, stable?}")
+    if len(raw_checks) > 25:
+        raise ValueError("at most 25 checks per run")
+    checks: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for raw in raw_checks:
+        if not isinstance(raw, dict):
+            raise ValueError("each check must be an object")
+        name = str(raw.get("name") or "").strip()[:100]
+        if not name or name in seen:
+            raise ValueError("each check needs a unique name")
+        seen.add(name)
+        try:
+            query = validate_select_only((raw.get("query") or "").strip())
+        except SqlGuardError as exc:
+            raise ValueError(f"check {name!r}: {exc}") from exc
+        assertion = raw.get("assertion")
+        if assertion is not None and (
+            not isinstance(assertion, dict)
+            or assertion.get("mode") not in {"row_count", "cell_equals", "column_values"}
+        ):
+            raise ValueError(f"check {name!r}: assertion must have mode row_count|cell_equals|column_values")
+        qp = raw.get("query_params")
+        checks.append({
+            "name": name, "query": query,
+            "query_params": qp[:50] if isinstance(qp, list) else [],
+            "assertion": assertion, "stable": raw.get("stable") is True,
+        })
+
+    out: dict[str, Any] = {"phase": phase, "migration": migration[:200], "checks": checks}
+    if phase == "post":
+        baseline = (params.get("baseline_job_id") or "").strip()
+        if not baseline:
+            raise ValueError("baseline_job_id is required for phase 'post' — the id of the finished 'pre' run")
+        out["baseline_job_id"] = baseline[:100]
+    return out
 
 
 def _validate(kind: str, params: dict[str, Any]) -> dict[str, Any]:
@@ -612,13 +785,13 @@ def _validate(kind: str, params: dict[str, Any]) -> dict[str, Any]:
             raise ValueError("target is required — an account/project identifier, e.g. 'aws-prod-123456789012'")
         clean["target"] = target[:200]
         clean["url"] = clean["target"]  # engagement target-pattern matches on this
-    if kind == "db_assert":
+    if kind in ("db_assert", "db_migration_check"):
         # One explicit fail-closed opt-in, not exploit_poc's three-gate
         # stack -- this is read-only and makes no destructive claim, but it
         # does touch live data with real credentials, which warrants more
         # than the probe kinds get.
         if os.environ.get("ZYVOR_DB_TESTING_ENABLED", "false").strip().lower() not in {"1", "true", "yes", "on"}:
-            raise ValueError("db_assert is disabled — set ZYVOR_DB_TESTING_ENABLED=true to enable it")
+            raise ValueError(f"{kind} is disabled — set ZYVOR_DB_TESTING_ENABLED=true to enable it")
 
         engine = (params.get("engine") or "").strip().lower()
         if engine not in ("postgres", "mysql", "sqlite"):
@@ -648,6 +821,10 @@ def _validate(kind: str, params: dict[str, Any]) -> dict[str, Any]:
         clean["target"] = target[:200]
         clean["url"] = clean["target"]
 
+        clean["timeout_s"] = max(5, min(int(params.get("timeout_s") or 30), 120))
+        if kind == "db_migration_check":
+            clean.update(_validate_migration_check(params))
+    if kind == "db_assert":
         from orchestrator.security.sql_guard import SqlGuardError, validate_select_only
 
         query = (params.get("query") or "").strip()
@@ -663,7 +840,6 @@ def _validate(kind: str, params: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(assertion, dict) or assertion.get("mode") not in {"row_count", "cell_equals", "column_values"}:
             raise ValueError("assertion must be a dict with mode in row_count|cell_equals|column_values")
         clean["assertion"] = assertion
-        clean["timeout_s"] = max(5, min(int(params.get("timeout_s") or 30), 120))
     if kind in ("chaos_inject", "chaos_webhook"):
         # Two gates shared by both kinds, on top of the exploit-tier
         # engagement check at the end of _validate(): an independent
@@ -873,26 +1049,102 @@ def _validate(kind: str, params: dict[str, Any]) -> dict[str, Any]:
 
 
 def trigger(kind: str, params: dict[str, Any] | None = None) -> tuple[bool, dict[str, Any]]:
-    """Start a job unless one is already running. Returns (started, status)."""
+    """Start a job unless the runner is at capacity. Returns (started, status).
+
+    By default one job runs at a time. With ZYVOR_JOBS_MAX_CONCURRENT > 1, a job of a
+    CONCURRENT_SAFE_KINDS kind may start while the slot job runs; the returned status
+    carries its job_id."""
     clean = _validate(kind, params or {})
+    side: Optional[_SideJob] = None
     with _lock:
-        if _state["running"]:
+        running_now = int(bool(_state["running"])) + sum(1 for j in _side_jobs.values() if j.running)
+        if running_now >= max_concurrent():
             return False, dict(_state)
-        _cancel.clear()
-        _progress.clear()
-        _live_cases.clear()
-        _state.update(
-            running=True,
-            kind=kind,
-            params=clean,
-            started_at=_now(),
-            finished_at=None,
-            result=None,
-            error=None,
-        )
+        if _state["running"]:
+            # The slot is taken: only a concurrency-safe kind may run beside it.
+            if kind not in CONCURRENT_SAFE_KINDS:
+                return False, dict(_state)
+            side = _SideJob(kind, clean)
+            _side_jobs[side.job_id] = side
+            _prune_side_jobs()
+            stamp = datetime.now(timezone.utc).strftime("%H:%M:%S")
+            side.progress.append(f"[{stamp}] ▶ {kind} started")
+        else:
+            _cancel.clear()
+            _progress.clear()
+            _live_cases.clear()
+            _state.update(
+                running=True,
+                job_id=uuid.uuid4().hex[:12],
+                kind=kind,
+                params=clean,
+                started_at=_now(),
+                finished_at=None,
+                result=None,
+                error=None,
+            )
+    if side is not None:
+        threading.Thread(target=_run_side, args=(side,), daemon=True).start()
+        return True, side.snapshot()
     log_progress(f"▶ {kind} started")
     threading.Thread(target=_run, args=(kind, clean), daemon=True).start()
     return True, status()
+
+
+def _prune_side_jobs() -> None:
+    """Keep the registry bounded: drop the oldest finished concurrent jobs. Caller holds _lock."""
+    finished = [j for j in _side_jobs.values() if not j.running]
+    for old in finished[: max(0, len(finished) - _MAX_FINISHED_SIDE_JOBS)]:
+        _side_jobs.pop(old.job_id, None)
+
+
+def _run_side(side: _SideJob) -> None:
+    import time as _time
+
+    from orchestrator.dashboard import activity
+
+    token = _ctx_job.set(side)
+    t0 = _time.time()
+    result: Optional[dict[str, Any]] = None
+    error: Optional[str] = None
+    try:
+        result = _JOBS[side.kind](side.params)
+        log_progress(f"✅ {side.kind} finished: {_brief(side.kind, result, None)}")
+    except JobCancelled:
+        error = "cancelled by user"
+        log_progress("⏹ job cancelled")
+    except Exception as exc:  # surfaced in status, never crashes the server
+        error = str(exc)
+        log_progress(f"❌ {side.kind} failed: {error}")
+    finally:
+        _ctx_job.reset(token)
+    with _lock:
+        side.running = False
+        side.finished_at = _now()
+        side.result = result
+        side.error = error
+    activity.record_job(side.kind, error is None, _brief(side.kind, result, error), _time.time() - t0)
+
+
+def list_jobs() -> list[dict[str, Any]]:
+    """Every known job, newest first: the slot job (if any) plus concurrent jobs."""
+    with _lock:
+        slot = dict(_state)
+        sides = list(_side_jobs.values())
+    rows: list[dict[str, Any]] = []
+    if slot.get("kind"):
+        rows.append(
+            {"job_id": slot.get("job_id"), "kind": slot["kind"], "running": bool(slot["running"]),
+             "started_at": slot.get("started_at"), "finished_at": slot.get("finished_at"),
+             "error": slot.get("error"), "concurrent": False}
+        )
+    for j in sides:
+        rows.append(
+            {"job_id": j.job_id, "kind": j.kind, "running": j.running, "started_at": j.started_at,
+             "finished_at": j.finished_at, "error": j.error, "concurrent": True}
+        )
+    rows.sort(key=lambda r: r.get("started_at") or "", reverse=True)
+    return rows
 
 
 def _brief(kind: str, result: Optional[dict[str, Any]], error: Optional[str]) -> str:
@@ -930,6 +1182,10 @@ def _run(kind: str, params: dict[str, Any]) -> None:
     duration = _time.time() - t0
     with _lock:
         _state.update(running=False, finished_at=_now(), result=result, error=error)
+        if _state.get("job_id"):
+            _slot_history[_state["job_id"]] = _slot_view()
+            for old in list(_slot_history)[: max(0, len(_slot_history) - _MAX_FINISHED_SIDE_JOBS)]:
+                _slot_history.pop(old, None)
     activity.record_job(kind, error is None, _brief(kind, result, error), duration)
 
 
@@ -1759,6 +2015,7 @@ def _job_tls(params: dict[str, Any]) -> dict[str, Any]:
     log_progress(f"{host} → {', '.join(ips)}")
 
     ctx = ssl.create_default_context()
+    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
     log_progress(f"TLS handshake with {host}:{port}…")
     with socket.create_connection((host, port), timeout=15) as sock:
         with ctx.wrap_socket(sock, server_hostname=host) as ssock:
@@ -3414,6 +3671,124 @@ def _job_db_assert(params: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _job_db_migration_check(params: dict[str, Any]) -> dict[str, Any]:
+    """Run a named suite of read-only SELECT checks around a database
+    migration. Argus never applies the migration (the db_assert guard stays
+    read-only): run 'pre' before it, run the migration with your own tooling,
+    then run 'post' with the pre job's id. 'post' fails on broken invariants
+    and on drift against the baseline -- a changed column set for any check,
+    or changed data for a check marked stable. Only row counts, column names
+    and result digests are kept, never row contents."""
+    import json as _json
+    import time as _time
+
+    from agents.common.models import PipelineReport
+    from agents.db_assert.engine import load_runner_script
+    from agents.db_assert.migration import compare_to_baseline, parse_check_lines
+    from orchestrator.dashboard import findings, history
+    from orchestrator.persistence.store import get_store
+    from orchestrator.security import sandbox
+    from orchestrator.security.secrets import resolve_secret_refs
+
+    t0 = _time.time()
+    engine, target, phase = params["engine"], params["target"], params["phase"]
+    migration, checks = params["migration"], params["checks"]
+    store = get_store()
+
+    baseline: list[dict[str, Any]] = []
+    if phase == "post":
+        base_job = store.get_job(params["baseline_job_id"])
+        base_result = (base_job or {}).get("result") or {}
+        if (
+            not base_job or base_job.get("kind") != "db_migration_check"
+            or base_result.get("phase") != "pre" or base_result.get("migration") != migration
+            or base_result.get("target") != target
+        ):
+            raise ValueError(
+                "baseline_job_id must be a finished 'pre' db_migration_check run for the same migration and target"
+            )
+        baseline = base_result.get("checks") or []
+
+    if not sandbox.available():
+        raise RuntimeError(
+            "exploit sandbox unavailable — set ZYVOR_SANDBOX_NAMESPACE and ensure "
+            "the cluster is reachable (see kubernetes/sandbox.yaml)"
+        )
+    image = sandbox.db_image()
+    if not image:
+        raise RuntimeError(
+            "db_migration_check needs a sandbox image with psycopg/pymysql installed — "
+            "set ZYVOR_SANDBOX_DB_IMAGE (see docs/enterprise-v2.md)"
+        )
+
+    env = {
+        "ZYVOR_DB_ENGINE": engine,
+        "ZYVOR_DB_SECRET": str(resolve_secret_refs(params["db_secret"])),
+        "ZYVOR_DB_CHECKS": _json.dumps([
+            {k: c[k] for k in ("name", "query", "query_params", "assertion")} for c in checks
+        ]),
+        "ZYVOR_DB_TIMEOUT_S": str(params["timeout_s"]),
+    }
+    store.audit(
+        "db_migration_check.run", resource_type="db_migration_check", resource_id=target,
+        detail={
+            "engine": engine, "target": target, "phase": phase, "migration": migration,
+            "checks": [{"name": c["name"], "query": c["query"], "assertion": c["assertion"]} for c in checks],
+        },
+    )
+    log_progress(f"db_migration_check: {phase} run of {migration!r} against {target} ({len(checks)} checks)…")
+    result = sandbox.run_python(load_runner_script(), timeout_s=params["timeout_s"], env=env, image=image)
+    _check_cancel()
+
+    _, summary = _parse_verified_output(result.stdout)
+    ran = parse_check_lines(result.stdout)
+    failed_checks = [c for c in ran if not c.get("ok")]
+    # A suite that produced no CHECK lines at all (timeout, bad image) is a failure, not a pass.
+    suite_broken = len(ran) != len(checks)
+
+    drift: list[dict[str, str]] = []
+    if phase == "post":
+        stable = {c["name"] for c in checks if c["stable"]}
+        drift = compare_to_baseline(ran, baseline, stable)
+
+    passed = not failed_checks and not drift and not suite_broken
+    log_progress(
+        f"db_migration_check: {'PASSED' if passed else 'FAILED'} — {summary}"
+        + (f"; {len(drift)} drift" if drift else "")
+        + (" (timed out)" if result.timed_out else "")
+    )
+
+    raised: list[dict[str, Any]] = []
+    for c in failed_checks:
+        title = f"{migration}: invariant {c['name']!r} failed on {target}: {c.get('reason') or 'not satisfied'}"
+        findings.add("db_migration_check", "medium", title, detail=c.get("reason", ""), url=target,
+                     category="db-migration-invariant-failed")
+        raised.append({"severity": "medium", "title": title, "category": "db-migration-invariant-failed"})
+    for d in drift:
+        title = f"{migration}: {d['kind']} drift in {d['check']!r} on {target}"
+        findings.add("db_migration_check", "medium", title, detail=d["detail"], url=target,
+                     category="db-migration-drift")
+        raised.append({"severity": "medium", "title": title, "detail": d["detail"], "category": "db-migration-drift"})
+    if suite_broken:
+        title = f"{migration}: only {len(ran)} of {len(checks)} checks ran on {target}"
+        findings.add("db_migration_check", "medium", title, detail=summary, url=target,
+                     category="db-migration-suite-incomplete")
+        raised.append({"severity": "medium", "title": title, "category": "db-migration-suite-incomplete"})
+
+    bad = len(failed_checks) + len(drift) + (1 if suite_broken else 0)
+    hist = PipelineReport(
+        summary=f"db_migration_check {phase} {migration} on {target}: {'passed' if passed else 'failed'}",
+        passed=max(len(checks) - bad, 0), failed=bad, total=len(checks),
+    )
+    history.append_run(hist, source="dashboard-db-migration-check", duration_s=_time.time() - t0)
+
+    return {
+        "target": target, "engine": engine, "phase": phase, "migration": migration,
+        "checks": ran, "drift": drift, "passed": passed, "reason": summary,
+        "timed_out": result.timed_out, "exit_code": result.exit_code, "findings": raised,
+    }
+
+
 def _extract_error_bodies(control_kind: str, control_result: dict[str, Any]) -> list[str]:
     """Best-effort per-case error text for verdict.py's stack-trace check.
     Only 'flow' exposes this at the level _job_flow returns it
@@ -3867,6 +4242,7 @@ _JOBS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "host_pentest": _job_host_pentest,
     "cloud_pentest": _job_cloud_pentest,
     "db_assert": _job_db_assert,
+    "db_migration_check": _job_db_migration_check,
     "chaos_inject": _job_chaos_inject,
     "chaos_webhook": _job_chaos_webhook,
     "port_scan": _job_port_scan,
@@ -3885,7 +4261,7 @@ def _make_probe_job(name: str) -> Callable[[dict[str, Any]], dict[str, Any]]:
         from agents.probes.http_probes import PROBES
 
         kwargs = {k: v for k, v in params.items()}
-        kwargs["log"] = log_progress
+        kwargs["log"] = current_logger()
         return PROBES[name](**kwargs)
 
     return _job

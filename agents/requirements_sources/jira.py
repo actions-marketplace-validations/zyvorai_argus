@@ -1,16 +1,5 @@
-# Copyright 2026 ZyvorAI Labs Private Limited
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# Copyright 2026 Zyvor AI Labs · https://zyvor.dev
+# SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
 
 """Jira-like ticket source: JSON export files and optional REST API."""
 
@@ -27,7 +16,8 @@ from typing import Any
 
 def _issue_to_markdown(issue: dict[str, Any]) -> str:
     key = str(issue.get("key") or issue.get("id") or "TICKET")
-    fields = issue.get("fields") if isinstance(issue.get("fields"), dict) else issue
+    raw_fields = issue.get("fields")
+    fields: dict[str, Any] = raw_fields if isinstance(raw_fields, dict) else issue
     summary = str(fields.get("summary") or fields.get("title") or key)
     description = fields.get("description") or fields.get("body") or ""
     if isinstance(description, dict):

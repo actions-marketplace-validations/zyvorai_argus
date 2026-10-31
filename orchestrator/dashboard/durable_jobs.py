@@ -57,11 +57,15 @@ class DurableJobService:
         requested_by: str = "",
         idempotency_key: str | None = None,
         priority: int = 100,
+        callback_url: str | None = None,
     ) -> dict[str, Any]:
+        from orchestrator import callbacks
         from orchestrator.dashboard import jobs
 
         # Validate shape immediately, substituting harmless placeholders for refs.
         jobs._validate(kind, _validation_view(params))
+        if callback_url:
+            callback_url = callbacks.validate_callback_url(callback_url)
         with start_span("job.enqueue", job_kind=kind) as span:
             trace_context = current_traceparent() if span else None
             job = self.store.enqueue_job(
@@ -71,17 +75,21 @@ class DurableJobService:
                 idempotency_key=idempotency_key,
                 priority=priority,
                 trace_context=trace_context,
+                callback_url=callback_url,
             )
             if span:
                 span.set_attribute("job.id", job["id"])
+        # The callback URL may carry a token, so the audit row records only that
+        # one was requested; the host is audited when the notice is delivered.
         self.store.audit(
             "job.enqueue", actor=requested_by, resource_type="job", resource_id=job["id"],
-            detail={"kind": kind, "params": params},
+            detail={"kind": kind, "params": params, "callback": bool(callback_url)},
         )
         inc("zyvor_qa_jobs_enqueued_total", kind=kind)
         return job
 
     def _worker_loop(self) -> None:
+        from orchestrator import callbacks
         from orchestrator.dashboard import jobs
 
         while not self._stop.is_set():
@@ -99,7 +107,7 @@ class DurableJobService:
             ) as span:
                 try:
                     params = resolve_secret_refs(job["params"])
-                    started, _ = jobs.trigger(kind, params)
+                    started, started_state = jobs.trigger(kind, params)
                     if not started:
                         self.store.requeue_job(job_id, "legacy runner is busy")
                         if span:
@@ -107,21 +115,28 @@ class DurableJobService:
                         self._stop.wait(self.poll_s)
                         continue
 
+                    # Follow our own job by id: with concurrent jobs enabled the
+                    # runner's "current" status may belong to another job.
+                    run_id = (started_state or {}).get("job_id")
                     while not self._stop.is_set():
                         self.store.heartbeat(job_id)
-                        state = jobs.status()
+                        state = jobs.status(run_id) if run_id else jobs.status()
                         if self.store.cancellation_requested(job_id):
-                            jobs.cancel()
+                            jobs.cancel(run_id) if run_id else jobs.cancel()
                         if not state.get("running"):
                             error = state.get("error")
                             if error == "cancelled by user" or self.store.cancellation_requested(job_id):
                                 self.store.mark_cancelled(job_id)
+                                callbacks.dispatch(
+                                    self.store, job_id, kind, "cancelled", time.monotonic() - started_at
+                                )
                                 inc("zyvor_qa_jobs_completed_total", kind=kind, status="cancelled")
                                 if span:
                                     span.set_attribute("job.status", "cancelled")
                             else:
                                 self.store.finish_job(job_id, result=state.get("result"), error=error)
                                 status = "failed" if error else "succeeded"
+                                callbacks.dispatch(self.store, job_id, kind, status, time.monotonic() - started_at)
                                 inc("zyvor_qa_jobs_completed_total", kind=kind, status=status)
                                 if span:
                                     span.set_attribute("job.status", status)
@@ -131,6 +146,7 @@ class DurableJobService:
                         self._stop.wait(self.poll_s)
                 except Exception as exc:
                     self.store.finish_job(job_id, error=str(exc)[:2000])
+                    callbacks.dispatch(self.store, job_id, kind, "failed", time.monotonic() - started_at)
                     inc("zyvor_qa_jobs_completed_total", kind=kind, status="failed")
                     set_span_error(span, str(exc))
                 finally:
