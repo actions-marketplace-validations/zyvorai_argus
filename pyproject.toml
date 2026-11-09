@@ -51,7 +51,7 @@ knowledge = [
     "langchain-text-splitters>=1.0.0,<2.0.0",
     "qdrant-client>=1.15.1,<2.0.0",
     "langgraph-checkpoint-sqlite>=2.0,<4.0",
-    "pypdf>=5.0.0,<7.0.0",
+    "pypdf>=5.0.0,<8.0.0",
     "orjson>=3.10.0,<4.0.0",
 ]
 # Local embeddings + BM25 sparse vectors for hybrid retrieval. Split out because
